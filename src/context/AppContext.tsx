@@ -14,7 +14,7 @@ interface AppContextType {
   setMetrics: (metrics: Metric[]) => void;
   setSelectedDate: (date: string) => void;
   exportData: () => void;
-  importData: (file: File) => Promise<boolean>;
+  importData: (jsonString: string) => boolean;
   clearAllData: () => void;
 }
 
@@ -89,27 +89,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     };
 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: 'application/json'
+    const jsonString = JSON.stringify(exportData, null, 2);
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(jsonString).then(() => {
+      console.log('Data copied to clipboard successfully!');
+    }).catch((err) => {
+      console.error('Failed to copy data to clipboard:', err);
+      // Fallback: create temporary textarea
+      const textarea = document.createElement('textarea');
+      textarea.value = jsonString;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
     });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `daily-writing-backup-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
-  const importData = async (file: File): Promise<boolean> => {
+  const importData = (jsonString: string): boolean => {
     try {
-      const text = await file.text();
-      const imported = JSON.parse(text);
+      const imported = JSON.parse(jsonString);
 
       if (!imported.data || !imported.data.entries) {
-        throw new Error('Invalid backup file format');
+        throw new Error('Invalid backup data format');
       }
 
       const entries = imported.data.entries || [];

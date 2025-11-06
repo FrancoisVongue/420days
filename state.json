@@ -1,0 +1,58 @@
+{
+  "version": "1.0",
+  "exportDate": "2025-11-06T15:34:02.592Z",
+  "data": {
+    "entries": [
+      {
+        "id": "2025-11-06-1762443009384",
+        "date": "2025-11-06",
+        "content": "It was a pretty good day.",
+        "satisfaction": 50,
+        "color": "#3B82F6",
+        "createdAt": "2025-11-06T15:30:09.384Z",
+        "updatedAt": "2025-11-06T15:30:09.384Z"
+      }
+    ],
+    "metrics": [
+      {
+        "id": "1762440084629",
+        "name": "weight-loss",
+        "color": "#3B82F6",
+        "targetValue": 10,
+        "entries": [
+          {
+            "date": "2025-11-06",
+            "value": 5
+          }
+        ],
+        "unit": "kg"
+      },
+      {
+        "id": "1762441013160",
+        "name": "Morning routine ",
+        "color": "#EF4444",
+        "targetValue": 10,
+        "entries": [
+          {
+            "date": "2025-11-06",
+            "value": 8
+          }
+        ],
+        "unit": ""
+      },
+      {
+        "id": "1762442709464",
+        "name": "subscribers",
+        "color": "#10B981",
+        "targetValue": 1000,
+        "entries": [
+          {
+            "date": "2025-11-06",
+            "value": 0
+          }
+        ],
+        "unit": ""
+      }
+    ]
+  }
+}

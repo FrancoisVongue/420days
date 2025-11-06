@@ -21,6 +21,15 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, metrics, sele
   const svgRef = useRef<SVGSVGElement>(null);
   const [selectedMetricId, setSelectedMetricId] = useState<string>('');
   
+  // Auto-select default metric or first metric
+  useEffect(() => {
+    if (metrics.length > 0 && !selectedMetricId) {
+      const defaultMetric = metrics.find(m => m.isDefault);
+      const metricToSelect = defaultMetric || metrics[0];
+      setSelectedMetricId(metricToSelect.id);
+    }
+  }, [metrics, selectedMetricId]);
+  
   const CELL_PADDING = 3;
   const ROWS = 20;
   const COLS = 21;
@@ -89,44 +98,30 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, metrics, sele
 
     // GitHub-style green gradient for 0-99%, beautiful blue for 100%
     const getColorForPercentage = (percentage: number) => {
-      if (percentage === 0) return '#ebedf0'; // Very light green (GitHub's #0)
-      if (percentage === 100) return '#09f'; // Beautiful blue for achievement
-      
-      // GitHub-style continuous green gradient (0-99%)
-      // Using HSL for smooth transitions between GitHub's green colors
-      const normalized = percentage / 99; // Normalize 0-99% to 0-1
-      
-      // Create smooth gradient from light green to dark green
-      // GitHub colors: #ebedf0 → #9be9a8 → #40c463 → #30a14e → #216e39
-      let hue, saturation, lightness;
-      
-      if (normalized <= 0.25) {
-        // Very light to light green (0-25%)
-        const localProgress = normalized / 0.25;
-        hue = 120; // Green
-        saturation = 20 + (localProgress * 40); // 20% to 60%
-        lightness = 85 - (localProgress * 15); // 85% to 70%
-      } else if (normalized <= 0.5) {
-        // Light to medium green (25-50%)
-        const localProgress = (normalized - 0.25) / 0.25;
-        hue = 120; // Green
-        saturation = 60 + (localProgress * 20); // 60% to 80%
-        lightness = 70 - (localProgress * 15); // 70% to 55%
-      } else if (normalized <= 0.75) {
-        // Medium to dark green (50-75%)
-        const localProgress = (normalized - 0.5) / 0.25;
-        hue = 120; // Green
-        saturation = 80 + (localProgress * 10); // 80% to 90%
-        lightness = 55 - (localProgress * 10); // 55% to 45%
-      } else {
-        // Dark to very dark green (75-99%)
-        const localProgress = (normalized - 0.75) / 0.25;
-        hue = 120; // Green
-        saturation = 90 + (localProgress * 5); // 90% to 95%
-        lightness = 45 - (localProgress * 15); // 45% to 30%
+      if(!percentage) {
+        return '#ebedf0';
       }
+      // x y z
+      const for_0 = [140, 60, 75];
+      const for_80 = [160, 100, 25];
+      const for_100 = [210, 100, 66];
+      const arr_to_str = (arr: number[]) => `hsl(${arr[0]}, ${arr[1]}%, ${arr[2]}%)`;
       
-      return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+      if (percentage === 0) return arr_to_str(for_0);
+      if (percentage === 100) return arr_to_str(for_100);
+      if(percentage <= 80) {
+        const move_0 = (for_80[0] - for_0[0]) * (percentage / 80);
+        const move_1 = (for_80[1] - for_0[1]) * (percentage / 80);
+        const move_2 = (for_80[2] - for_0[2]) * (percentage / 80); 
+        const for_percentage = [for_0[0] + move_0, for_0[1] + move_1, for_0[2] + move_2];
+        return arr_to_str(for_percentage); 
+      } else {
+        const move_0 = (for_100[0] - for_80[0]) * ((percentage - 80) / 20);
+        const move_1 = (for_100[1] - for_80[1]) * ((percentage - 80) / 20);
+        const move_2 = (for_100[2] - for_80[2]) * ((percentage - 80) / 20);
+        const for_percentage = [for_80[0] + move_0, for_80[1] + move_1, for_80[2] + move_2];
+        return arr_to_str(for_percentage);
+      }
     };
 
     // Create tooltip
@@ -263,7 +258,7 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, metrics, sele
           <h2 className="text-lg font-bold text-gray-900">420-Day Writing Journey</h2>
           
           {metrics.length > 0 && (
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border-2 border-dashed border-blue-400 animate-pulse">
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border-2 border-dashed border-blue-400">
               <div className="flex items-center justify-between">
                 <div className="flex flex-col space-y-1">
                   <label className="text-base font-bold text-blue-900">
@@ -276,14 +271,7 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, metrics, sele
                 <select
                   value={selectedMetricId}
                   onChange={(e) => setSelectedMetricId(e.target.value)}
-                  className="px-4 py-2 text-base font-bold rounded-lg focus:outline-none focus:ring-0 bg-white text-gray-900 shadow-md hover:shadow-lg transition-all duration-200 min-w-[180px]"
-                  style={{
-                    border: '4px dashed #3b82f6',
-                    borderWidth: '4px',
-                    borderStyle: 'dashed',
-                    borderColor: '#3b82f6',
-                    animation: 'borderSpin 3s linear infinite'
-                  }}
+                  className="px-4 py-2 text-base font-bold rounded-lg focus:outline-none focus:ring-0 bg-white text-gray-900 shadow-md min-w-[180px]"
                 >
                   {metrics.length === 0 ? (
                     <option value="">No metrics available</option>

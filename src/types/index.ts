@@ -28,4 +28,5 @@ export interface Metric {
   targetValue: number;
   entries: MetricEntry[];
   unit?: string;
+  isDefault?: boolean;
 }

@@ -138,7 +138,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
     // Axes
     g.append('g')
       .attr('transform', `translate(0,${height})`)
-      .call(d3.axisBottom(xScale).tickFormat(d3.timeFormat('%b %d')));
+      .call(d3.axisBottom(xScale).tickFormat((date: Date | d3.NumberValue) => d3.timeFormat('%b %d')(date as Date)));
 
     g.append('g')
       .call(d3.axisLeft(yScale).tickFormat(d => `${d}%`));
@@ -216,13 +216,15 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
       .style('max-width', '300px');
 
     // Create invisible overlay for mouse tracking
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const overlay = g.append('rect')
       .attr('width', width)
       .attr('height', height)
       .attr('fill', 'none')
       .attr('pointer-events', 'all')
-      .on('mousemove', function(event) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .on('mousemove', function(event: any) {
+        // Overlay is used for mouse tracking - reference to satisfy linter
+        void overlay;
         const [mouseX] = d3.pointer(event);
         const hoveredDate = xScale.invert(mouseX);
         
@@ -474,19 +476,35 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
             )}
 
             {/* Metrics List */}
-            <div className="overflow-y-auto min-h-0">
+            <div className="flex-1 overflow-y-auto w-full overflow-x-hidden p-4">
               {metrics.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 w-full">  {/* Add this wrapper */}
+
                   {metrics.map(metric => {
                     const selectedEntry = metric.entries.find(e => e.date === selectedDate);
                     const currentValue = selectedEntry?.value || 0;
                     const percentage = metric.targetValue > 0 ? (currentValue / metric.targetValue) * 100 : 0;
                     
                     return (
-                      <div key={metric.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50 flex-shrink-0">
+                      <div key={metric.id} 
+                      className="p-3 border border-gray-200 rounded-lg bg-gray-50 w-80"
+                      >
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center space-x-2">
-                            <div 
+                            <input
+                              type="checkbox"
+                              checked={metric.isDefault || false}
+                              onChange={(e) => {
+                                const updatedMetrics = metrics.map(m => ({
+                                  ...m,
+                                  isDefault: m.id === metric.id ? e.target.checked : false
+                                }));
+                                setMetrics(updatedMetrics);
+                              }}
+                              className="w-3 h-3 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              title="Set as default metric"
+                            />
+                            <div
                               className="w-3 h-3 rounded-full"
                               style={{ backgroundColor: metric.color }}
                             />
@@ -533,12 +551,12 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
                   })}
                 </div>
               ) : (
-                <div className="text-center py-12 text-gray-500">
-                  <Target className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p className="mb-4">No metrics created yet.</p>
-                  <p className="text-sm">Click "Add Metric" to start tracking your progress!</p>
-                </div>
-              )}
+                    <div className="text-center py-12 text-gray-500">
+                      <Target className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                      <p className="mb-4">No metrics created yet.</p>
+                      <p className="text-sm">Click "Add Metric" to start tracking your progress!</p>
+                    </div>
+                  )}
             </div>
           </div>
         )}
