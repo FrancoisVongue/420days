@@ -25,7 +25,7 @@ export const calculateStats = (entries: DailyEntry[]): WritingStats => {
   let tempStreak = 0;
 
   const today = new Date();
-  let currentDate = new Date(today);
+  const currentDate = new Date(today);
 
   // Calculate current streak
   for (let i = 0; i < sortedEntries.length; i++) {

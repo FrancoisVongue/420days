@@ -1,25 +1,13 @@
-import React, { useState, useEffect } from 'react';
 import { PenTool, CalendarDays } from 'lucide-react';
 import { StatsView } from './components/StatsView';
-import { getAllEntries } from './utils/storage';
-import { calculateStats } from './utils/stats';
-import { DailyEntry } from './types';
+import { DataManager } from './components/DataManager';
+import { AppProvider, useApp } from './context/AppContext';
 import dayjs from 'dayjs';
 
-function App() {
-  const [entries, setEntries] = useState<DailyEntry[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string>(dayjs().format('YYYY-MM-DD'));
+function AppContent() {
+  const { state, setSelectedDate } = useApp();
+  const { entries, metrics, selectedDate } = state;
 
-  useEffect(() => {
-    loadEntries();
-  }, []);
-
-  const loadEntries = () => {
-    const allEntries = getAllEntries();
-    setEntries(allEntries);
-  };
-
-  const stats = calculateStats(entries);
   const today = dayjs().format('YYYY-MM-DD');
   const isToday = selectedDate === today;
   const selectedDateFormatted = dayjs(selectedDate).format('MMMM D, YYYY');
@@ -30,11 +18,14 @@ function App() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 flex-shrink-0">
         <div className="px-6 py-3">
-          <div className="flex items-center justify-center space-x-3">
-            <div className="flex items-center justify-center w-8 h-8 bg-blue-600 rounded-lg">
-              <PenTool className="w-5 h-5 text-white" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center justify-center space-x-3">
+              <div className="flex items-center justify-center w-8 h-8 bg-blue-600 rounded-lg">
+                <PenTool className="w-5 h-5 text-white" />
+              </div>
+              <h1 className="text-lg font-semibold text-gray-900">Daily Journal</h1>
             </div>
-            <h1 className="text-lg font-semibold text-gray-900">Daily Journal</h1>
+            <DataManager />
           </div>
         </div>
       </header>
@@ -65,14 +56,21 @@ function App() {
       {/* Main Content */}
       <main className="overflow-hidden min-h-0">
         <StatsView 
-          stats={stats} 
-          entries={entries} 
+          entries={entries}
+          metrics={metrics}
           selectedDate={selectedDate} 
           onDateSelect={setSelectedDate}
-          onEntryUpdate={loadEntries}
         />
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AppProvider>
+      <AppContent />
+    </AppProvider>
   );
 }
 

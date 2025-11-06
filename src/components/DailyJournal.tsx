@@ -1,55 +1,99 @@
-import React, { useState, useEffect } from 'react';
-import { Save, BookOpen, Smile, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Save, BookOpen, Trash2, Target } from 'lucide-react';
 import dayjs from 'dayjs';
-import { DailyEntry } from '../types';
-import { saveEntry, getEntryByDate, getAllEntries } from '../utils/storage';
-
-// Function to get color based on satisfaction (0-100)
-const getSatisfactionColor = (satisfaction: number): string => {
-  if (satisfaction <= 50) {
-    // Black (0) to White (50)
-    const ratio = satisfaction / 50;
-    const value = Math.round(255 * ratio);
-    const hex = value.toString(16).padStart(2, '0');
-    return `#${hex}${hex}${hex}`;
-  } else {
-    // White (50) to Dark Green (100)
-    const ratio = (satisfaction - 50) / 50;
-    const r = Math.round(255 - (255 - 26) * ratio);
-    const g = Math.round(255 - (255 - 95) * ratio);
-    const b = Math.round(255 - (255 - 26) * ratio);
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-  }
-};
+import { DailyEntry, Metric } from '../types';
+import { useApp } from '../context/AppContext';
 
 interface DailyJournalProps {
   selectedDate: string;
-  onEntryUpdate: () => void;
+  metrics: Metric[];
 }
 
-export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, onEntryUpdate }) => {
+export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metrics }) => {
+  const { state, setEntries, setMetrics } = useApp();
+  const { entries } = state;
+  
   const [content, setContent] = useState('');
-  const [satisfaction, setSatisfaction] = useState(50);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [showClearModal, setShowClearModal] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  
+  // State for metric sliders
+  const [metricValues, setMetricValues] = useState<{[key: string]: number}>({});
+
+  // Load metric values for the selected date
+  const loadMetricValues = useCallback(() => {
+    const values: {[key: string]: number} = {};
+    metrics.forEach(metric => {
+      const entry = metric.entries.find(e => e.date === selectedDate);
+      if (entry) {
+        // Convert actual value to percentage
+        const percentage = metric.targetValue > 0 ? Math.round((entry.value / metric.targetValue) * 100) : 0;
+        values[metric.id] = percentage;
+      } else {
+        values[metric.id] = 0;
+      }
+    });
+    setMetricValues(values);
+  }, [metrics, selectedDate]);
+
+  // Update metric value
+  const updateMetricValue = (metricId: string, percentage: number) => {
+    setMetricValues(prev => ({ ...prev, [metricId]: percentage }));
+    
+    // Update the metric in the global state
+    setMetrics(metrics.map(metric => {
+      if (metric.id === metricId) {
+        const actualValue = Math.round((percentage / 100) * metric.targetValue);
+        const existingEntry = metric.entries.find(e => e.date === selectedDate);
+        let updatedEntries;
+        
+        if (existingEntry) {
+          updatedEntries = metric.entries.map(e => 
+            e.date === selectedDate ? { ...e, value: actualValue } : e
+          );
+        } else {
+          updatedEntries = [...metric.entries, { date: selectedDate, value: actualValue }];
+        }
+        
+        return { ...metric, entries: updatedEntries };
+      }
+      return metric;
+    }));
+  };
+
+  const getEntryByDate = useCallback((date: string): DailyEntry | null => {
+    return entries.find(e => e.date === date) || null;
+  }, [entries]);
+
+  const saveEntry = (entry: DailyEntry): void => {
+    const existingIndex = entries.findIndex(e => e.date === entry.date);
+    
+    let updatedEntries;
+    if (existingIndex >= 0) {
+      updatedEntries = [...entries];
+      updatedEntries[existingIndex] = entry;
+    } else {
+      updatedEntries = [...entries, entry];
+    }
+    
+    setEntries(updatedEntries);
+  };
 
   useEffect(() => {
     // Load existing entry for selected date
     const existingEntry = getEntryByDate(selectedDate);
     if (existingEntry) {
       setContent(existingEntry.content);
-      setSatisfaction(existingEntry.satisfaction);
     } else {
       setContent('');
-      setSatisfaction(50);
     }
     setLastSaved(null);
-  }, [selectedDate]);
-
-  // Calculate current color based on satisfaction
-  const currentColor = getSatisfactionColor(satisfaction);
+    
+    // Load metric values for the selected date
+    loadMetricValues();
+  }, [selectedDate, entries, getEntryByDate, loadMetricValues]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -58,8 +102,8 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, onEntr
       id: `${selectedDate}-${Date.now()}`,
       date: selectedDate,
       content: content.trim(),
-      satisfaction,
-      color: currentColor,
+      satisfaction: 50, // Default satisfaction for compatibility
+      color: '#3B82F6', // Default color
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -67,7 +111,6 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, onEntr
     try {
       saveEntry(entry);
       setLastSaved(new Date().toLocaleTimeString());
-      onEntryUpdate();
     } catch (error) {
       console.error('Failed to save entry:', error);
     } finally {
@@ -80,9 +123,8 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, onEntr
     
     try {
       // Clear journal entry
-      const allEntries = getAllEntries();
-      const filteredEntries = allEntries.filter(entry => entry.date !== selectedDate);
-      localStorage.setItem('daily-writing-entries', JSON.stringify(filteredEntries));
+      const filteredEntries = entries.filter((entry: DailyEntry) => entry.date !== selectedDate);
+      setEntries(filteredEntries);
       
       // Clear metrics data for this day (stored in localStorage with different keys)
       // Note: This assumes metrics are stored in localStorage. If they're stored differently,
@@ -95,11 +137,7 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, onEntr
       
       // Reset form state
       setContent('');
-      setSatisfaction(50);
       setLastSaved(null);
-      
-      // Trigger update
-      onEntryUpdate();
       
       setShowClearModal(false);
     } catch (error) {
@@ -107,19 +145,6 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, onEntr
     } finally {
       setIsClearing(false);
     }
-  };
-
-  const getSatisfactionTextColorClass = (value: number) => {
-    // Use a neutral color for text since we're showing the actual color in the preview
-    return 'text-gray-700';
-  };
-
-  const getSatisfactionEmoji = (value: number) => {
-    if (value >= 90) return '😄';
-    if (value >= 70) return '😊';
-    if (value >= 50) return '😐';
-    if (value >= 30) return '😕';
-    return '😞';
   };
 
   const today = dayjs().format('YYYY-MM-DD');
@@ -147,73 +172,78 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, onEntr
         )}
       </div>
 
-      <div className="overflow-hidden min-h-0 flex flex-col">
-        <label htmlFor="journal-content" className="block text-sm font-medium text-gray-700 mb-2 flex-shrink-0">
-          Your thoughts and reflections
-        </label>
-        <textarea
-          id="journal-content"
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder={isToday ? "What happened today? How are you feeling? What did you learn?" : "What do you remember about this day?"}
-          className="w-full flex-1 min-h-0 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none overflow-y-auto"
-        />
-        <div className="mt-2 text-sm text-gray-500 flex-shrink-0">
-          {content.length} characters
-        </div>
-      </div>
-
-      {/* Satisfaction Slider */}
-      <div className="flex-shrink-0">
-        <div className="flex items-center justify-between mb-3">
-          <label htmlFor="satisfaction-slider" className="block text-sm font-medium text-gray-700">
-            Daily Satisfaction
+      {/* Main Content: 75% Journal + 25% Metrics */}
+      <div className="overflow-hidden min-h-0 flex gap-3">
+        {/* Journal Section - 75% */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <label htmlFor="journal-content" className="block text-sm font-medium text-gray-700 mb-2 flex-shrink-0">
+            Your thoughts and reflections
           </label>
-          <div className="flex items-center space-x-2">
-            <span className="text-2xl">{getSatisfactionEmoji(satisfaction)}</span>
-            <div 
-              className="w-6 h-6 rounded border border-gray-300"
-              style={{ backgroundColor: currentColor }}
-              title={`Color preview: ${currentColor}`}
-            />
-            <span className={`text-lg font-bold ${getSatisfactionTextColorClass(satisfaction)}`}>
-              {satisfaction}%
-            </span>
-          </div>
-        </div>
-        
-        <div className="relative">
-          <input
-            id="satisfaction-slider"
-            type="range"
-            min="0"
-            max="100"
-            value={satisfaction}
-            onChange={(e) => setSatisfaction(parseInt(e.target.value))}
-            className="w-full h-3 rounded-lg appearance-none cursor-pointer"
-            style={{
-              background: `linear-gradient(to right, 
-                #000000 0%,     /* Black */
-                #ffffff 50%,    /* White */
-                #1a5f1a 100%    /* Dark Green */
-              )`
-            }}
+          <textarea
+            id="journal-content"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder={isToday ? "What happened today? How are you feeling? What did you learn?" : "What do you remember about this day?"}
+            className="w-full flex-1 min-h-0 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none overflow-y-auto"
           />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>Terrible</span>
-            <span>Below Average</span>
-            <span>Okay</span>
-            <span>Good</span>
-            <span>Amazing</span>
+          <div className="mt-2 text-sm text-gray-500 flex-shrink-0">
+            {content.length} characters
           </div>
         </div>
-        
-        <div className="mt-2 text-sm text-gray-600">
-          Rate how satisfied you feel about this day overall
+
+        {/* Metrics Section - 25% */}
+        <div className="w-1/4 min-w-0 flex flex-col">
+          <div className="flex items-center space-x-2 mb-2 flex-shrink-0">
+            <Target className="w-4 h-4 text-blue-600" />
+            <label className="text-sm font-medium text-gray-700">
+              Daily Metrics
+            </label>
+          </div>
+          
+          {metrics.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center text-center text-gray-500 text-sm">
+              <div>
+                <Target className="w-6 h-6 mx-auto mb-2 text-gray-400" />
+                <p>No metrics yet</p>
+                <p className="text-xs">Create metrics in the chart view</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto space-y-3">
+              {metrics.map(metric => {
+                const percentage = metricValues[metric.id] || 0;
+                const actualValue = Math.round((percentage / 100) * metric.targetValue);
+                
+                return (
+                  <div key={metric.id} className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs font-medium text-gray-700 truncate">
+                        {metric.name}
+                      </label>
+                      <span className="text-xs text-gray-500 min-w-0 text-right">
+                        {actualValue}{metric.unit || ''} ({percentage}%)
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={percentage}
+                      onChange={(e) => updateMetricValue(metric.id, parseInt(e.target.value))}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                    />
+                    <div className="text-xs text-gray-400 text-right">
+                      Target: {metric.targetValue}{metric.unit || ''}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Save Button */}
+      {/* Action Buttons */}
       <div className="flex justify-between items-center flex-shrink-0">
         <button
           onClick={() => setShowClearModal(true)}
@@ -261,7 +291,6 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, onEntr
                 </p>
                 <ul className="text-red-700 text-sm space-y-1 ml-4">
                   <li>• Journal entry and thoughts</li>
-                  <li>• Daily satisfaction rating</li>
                   <li>• All metric values for this day</li>
                 </ul>
               </div>
@@ -288,7 +317,7 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, onEntr
         </div>
       )}
 
-      <style jsx>{`
+      <style>{`
         input[type="range"]::-webkit-slider-thumb {
           appearance: none;
           height: 24px;

@@ -1,11 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import dayjs from 'dayjs';
-import _ from 'lodash';
-import { DailyEntry } from '../types';
+import { DailyEntry, Metric } from '../types';
 
 interface WritingGridProps {
   entries: DailyEntry[];
+  metrics: Metric[];
   selectedDate: string;
   onDateSelect: (date: string) => void;
 }
@@ -14,14 +14,13 @@ interface GridData {
   date: string;
   dayNumber: number;
   entry: DailyEntry | null;
-  wordCount: number;
-  level: number; // 0-4 for different color intensities
+  percentage: number; // 0-100 for continuous color gradient
 }
 
-export const WritingGrid: React.FC<WritingGridProps> = ({ entries, selectedDate, onDateSelect }) => {
+export const WritingGrid: React.FC<WritingGridProps> = ({ entries, metrics, selectedDate, onDateSelect }) => {
   const svgRef = useRef<SVGSVGElement>(null);
+  const [selectedMetricId, setSelectedMetricId] = useState<string>('');
   
-  const CELL_SIZE = 24;
   const CELL_PADDING = 3;
   const ROWS = 20;
   const COLS = 21;
@@ -51,22 +50,24 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, selectedDate,
       
       // Find entry for this specific day
       const entry = entries.find(e => e.date === dateStr) || null;
-      const satisfaction = entry ? entry.satisfaction : 0;
       
-      // Calculate intensity level (0-4)
-      let level = 0;
-      if (satisfaction > 0) {
-        if (satisfaction >= 90) level = 4;
-        else if (satisfaction >= 70) level = 3;
-        else if (satisfaction >= 50) level = 2;
-        else level = 1;
+      // Calculate intensity percentage based on selected metric
+      let percentage = 0;
+      if (selectedMetricId) {
+        const selectedMetric = metrics.find(m => m.id === selectedMetricId);
+        if (selectedMetric) {
+          const metricEntry = selectedMetric.entries.find(e => e.date === dateStr);
+          if (metricEntry && selectedMetric.targetValue > 0) {
+            percentage = Math.min(100, (metricEntry.value / selectedMetric.targetValue) * 100);
+          }
+        }
       }
 
       gridData.push({
         date: dateStr,
         dayNumber: i + 1,
         entry,
-        level
+        percentage
       });
     }
 
@@ -86,10 +87,46 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, selectedDate,
       .style('max-width', '100%')
       .style('max-height', '100%');
 
-    // Color scale
-    const getColorForEntry = (entry: DailyEntry | null) => {
-      if (!entry) return '#f3f4f6'; // Light gray for no entry
-      return entry.color; // Use the exact stored color
+    // GitHub-style green gradient for 0-99%, beautiful blue for 100%
+    const getColorForPercentage = (percentage: number) => {
+      if (percentage === 0) return '#ebedf0'; // Very light green (GitHub's #0)
+      if (percentage === 100) return '#09f'; // Beautiful blue for achievement
+      
+      // GitHub-style continuous green gradient (0-99%)
+      // Using HSL for smooth transitions between GitHub's green colors
+      const normalized = percentage / 99; // Normalize 0-99% to 0-1
+      
+      // Create smooth gradient from light green to dark green
+      // GitHub colors: #ebedf0 → #9be9a8 → #40c463 → #30a14e → #216e39
+      let hue, saturation, lightness;
+      
+      if (normalized <= 0.25) {
+        // Very light to light green (0-25%)
+        const localProgress = normalized / 0.25;
+        hue = 120; // Green
+        saturation = 20 + (localProgress * 40); // 20% to 60%
+        lightness = 85 - (localProgress * 15); // 85% to 70%
+      } else if (normalized <= 0.5) {
+        // Light to medium green (25-50%)
+        const localProgress = (normalized - 0.25) / 0.25;
+        hue = 120; // Green
+        saturation = 60 + (localProgress * 20); // 60% to 80%
+        lightness = 70 - (localProgress * 15); // 70% to 55%
+      } else if (normalized <= 0.75) {
+        // Medium to dark green (50-75%)
+        const localProgress = (normalized - 0.5) / 0.25;
+        hue = 120; // Green
+        saturation = 80 + (localProgress * 10); // 80% to 90%
+        lightness = 55 - (localProgress * 10); // 55% to 45%
+      } else {
+        // Dark to very dark green (75-99%)
+        const localProgress = (normalized - 0.75) / 0.25;
+        hue = 120; // Green
+        saturation = 90 + (localProgress * 5); // 90% to 95%
+        lightness = 45 - (localProgress * 15); // 45% to 30%
+      }
+      
+      return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
     };
 
     // Create tooltip
@@ -106,17 +143,50 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, selectedDate,
       .style('pointer-events', 'none')
       .style('z-index', '1000');
 
+    // Function to get tooltip content
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const getTooltipContent = (d: any) => {
+      const dateFormatted = dayjs(d.date).format('MMMM D, YYYY');
+      
+      if (selectedMetricId) {
+        const selectedMetric = metrics.find(m => m.id === selectedMetricId);
+        if (selectedMetric) {
+          const metricEntry = selectedMetric.entries.find(e => e.date === d.date);
+          const value = metricEntry ? metricEntry.value : 0;
+          const percentage = selectedMetric.targetValue > 0 ? Math.round((value / selectedMetric.targetValue) * 100) : 0;
+          
+          return `
+            <div><strong>Day ${d.dayNumber}</strong></div>
+            <div>${dateFormatted}</div>
+            <div><strong>${selectedMetric.name}</strong></div>
+            <div>Value: ${value}${selectedMetric.unit || ''}</div>
+            <div>Target: ${selectedMetric.targetValue}${selectedMetric.unit || ''}</div>
+            <div>Progress: ${percentage}%</div>
+            ${d.entry ? '<div>✓ Entry completed</div>' : '<div>No entry</div>'}
+          `;
+        }
+      }
+      
+      // No metric selected
+      return `
+        <div><strong>Day ${d.dayNumber}</strong></div>
+        <div>${dateFormatted}</div>
+        <div>Select a metric to see progress</div>
+        ${d.entry ? '<div>✓ Entry completed</div>' : '<div>No entry</div>'}
+      `;
+    };
+
     // Create cells
     svg.selectAll('rect')
       .data(gridData)
       .enter()
       .append('rect')
-      .attr('x', (d, i) => (i % COLS) * (optimalCellSize + CELL_PADDING))
-      .attr('y', (d, i) => Math.floor(i / COLS) * (optimalCellSize + CELL_PADDING))
+      .attr('x', (_, i) => (i % COLS) * (optimalCellSize + CELL_PADDING))
+      .attr('y', (_, i) => Math.floor(i / COLS) * (optimalCellSize + CELL_PADDING))
       .attr('width', optimalCellSize)
       .attr('height', optimalCellSize)
       .attr('rx', 2)
-      .attr('fill', d => getColorForEntry(d.entry))
+      .attr('fill', d => getColorForPercentage(d.percentage))
       .attr('stroke', d => {
         if (d.date === selectedDate) return '#3B82F6';
         if (d.date === todayDateString) return '#10B981';
@@ -128,24 +198,19 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, selectedDate,
         return 1;
       })
       .style('cursor', 'pointer')
-      .on('click', function(event, d) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .on('click', function(_event, d: any) {
         onDateSelect(d.date);
       })
-      .on('mouseover', function(event, d) {
-        const date = dayjs(d.date);
-        const dateFormatted = date.format('MMM D, YYYY');
-        
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .on('mouseover', function(_event, d: any) {
         tooltip
           .style('visibility', 'visible')
-          .html(`
-            <div><strong>Day ${d.dayNumber}</strong></div>
-            <div>${dateFormatted}</div>
-            <div>Satisfaction: ${d.entry ? d.entry.satisfaction : 0}%</div>
-            ${d.entry ? '<div>✓ Entry completed</div>' : '<div>No entry</div>'}
-          `);
+          .html(getTooltipContent(d));
         
         d3.select(this)
-          .attr('stroke', d => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .attr('stroke', (d: any) => {
             if (d.date === selectedDate) return '#1E40AF';
             if (d.date === todayDateString) return '#059669';
             return '#1f2937';
@@ -161,12 +226,14 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, selectedDate,
         tooltip.style('visibility', 'hidden');
         
         d3.select(this)
-          .attr('stroke', d => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .attr('stroke', (d: any) => {
             if (d.date === selectedDate) return '#3B82F6';
             if (d.date === todayDateString) return '#10B981';
             return '#e1e4e8';
           })
-          .attr('stroke-width', d => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .attr('stroke-width', (d: any) => {
             if (d.date === selectedDate) return 2;
             if (d.date === todayDateString) return 2;
             return 1;
@@ -177,32 +244,85 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, selectedDate,
     return () => {
       d3.select('body').selectAll('.writing-grid-tooltip').remove();
     };
-  }, [entries, selectedDate, todayDateString, onDateSelect]);
-
-  const today = dayjs();
-  const endDate = START_DATE.add(TOTAL_DAYS - 1, 'day');
-  const daysRemaining = Math.max(0, endDate.diff(today, 'day'));
-  const daysCompleted = Math.max(0, Math.min(TOTAL_DAYS, today.diff(START_DATE, 'day') + 1));
-  const completionPercentage = Math.max(0, Math.min(100, (daysCompleted / TOTAL_DAYS) * 100));
+  }, [entries, metrics, selectedMetricId, selectedDate, todayDateString, onDateSelect, START_DATE]);
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 h-full grid grid-rows-[auto_1fr_auto_auto] overflow-hidden">
-      <div className="mb-3 flex-shrink-0">
-        <h2 className="text-lg font-bold text-gray-900 mb-1">420-Day Writing Journey</h2>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-gray-600 space-y-1 sm:space-y-0">
-          <div>
-            Started: {START_DATE.format('MMMM D, YYYY')} • Ends: {endDate.format('MMMM D, YYYY')}
-          </div>
-          <div className="flex items-center space-x-4">
-            <span>{daysCompleted} of {TOTAL_DAYS} days</span>
-            <div className="w-20 bg-gray-200 rounded-full h-2">
-              <div 
-                className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${completionPercentage}%` }}
-              />
+    <>
+      <style>{`
+        @keyframes borderSpin {
+          0% { border-color: #3b82f6; }
+          25% { border-color: #8b5cf6; }
+          50% { border-color: #06b6d4; }
+          75% { border-color: #10b981; }
+          100% { border-color: #3b82f6; }
+        }
+      `}</style>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 h-full grid grid-rows-[auto_1fr_auto] overflow-hidden">
+      <div className="mb-4 flex-shrink-0">
+        <div className="flex flex-col space-y-3">
+          <h2 className="text-lg font-bold text-gray-900">420-Day Writing Journey</h2>
+          
+          {metrics.length > 0 && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border-2 border-dashed border-blue-400 animate-pulse">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col space-y-1">
+                  <label className="text-base font-bold text-blue-900">
+                    📊 Visualize Metric Progress
+                  </label>
+                  <p className="text-sm text-blue-700 font-medium">
+                    Select a metric to see your progress colored across all days
+                  </p>
+                </div>
+                <select
+                  value={selectedMetricId}
+                  onChange={(e) => setSelectedMetricId(e.target.value)}
+                  className="px-4 py-2 text-base font-bold rounded-lg focus:outline-none focus:ring-0 bg-white text-gray-900 shadow-md hover:shadow-lg transition-all duration-200 min-w-[180px]"
+                  style={{
+                    border: '4px dashed #3b82f6',
+                    borderWidth: '4px',
+                    borderStyle: 'dashed',
+                    borderColor: '#3b82f6',
+                    animation: 'borderSpin 3s linear infinite'
+                  }}
+                >
+                  {metrics.length === 0 ? (
+                    <option value="">No metrics available</option>
+                  ) : (
+                    <>
+                      <option value="">Select a metric...</option>
+                      {metrics.map(metric => (
+                        <option key={metric.id} value={metric.id}>
+                          🎯 {metric.name}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </div>
+              
+              {selectedMetricId && (
+                <div className="mt-2 text-sm text-blue-600 bg-blue-100 rounded px-3 py-2 font-medium">
+                  💡 Tip: Green squares show days you achieved your target!
+                </div>
+              )}
             </div>
-            <span>{Math.round(completionPercentage)}%</span>
-          </div>
+          )}
+          
+          {metrics.length === 0 && (
+            <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-200">
+              <div className="flex items-center space-x-2">
+                <span className="text-lg">📊</span>
+                <div>
+                  <p className="text-sm font-medium text-gray-700">
+                    No metrics available yet
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Create metrics in the chart view to visualize progress here
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -214,11 +334,12 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, selectedDate,
         <span>Less</span>
         <div className="flex space-x-1">
           {[
-            { satisfaction: 0, color: '#000000', label: 'Terrible' },
-            { satisfaction: 25, color: '#404040', label: 'Poor' },
-            { satisfaction: 50, color: '#ffffff', label: 'Neutral' },
-            { satisfaction: 75, color: '#80bf80', label: 'Good' },
-            { satisfaction: 100, color: '#1a5f1a', label: 'Excellent' }
+            { percentage: 0, color: '#ebedf0', label: 'No data' },
+            { percentage: 25, color: '#9be9a8', label: 'Light progress' },
+            { percentage: 50, color: '#40c463', label: 'Good progress' },
+            { percentage: 75, color: '#30a14e', label: 'Strong progress' },
+            { percentage: 99, color: '#216e39', label: 'Almost there' },
+            { percentage: 100, color: '#09f', label: 'Target achieved!' }
           ].map((item, index) => (
             <div
               key={index}
@@ -235,5 +356,6 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, selectedDate,
         <p>Each square represents one day • Hover for details</p>
       </div>
     </div>
+    </>
   );
 };

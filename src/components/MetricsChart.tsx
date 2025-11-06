@@ -2,10 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import dayjs from 'dayjs';
 import { Plus, X, Target, TrendingUp, BarChart3, Settings } from 'lucide-react';
-import { Metric, MetricEntry } from '../types';
+import { Metric } from '../types';
+import { useApp } from '../context/AppContext';
 
 interface MetricsChartProps {
   selectedDate: string;
+  metrics: Metric[];
 }
 
 const CHART_COLORS = [
@@ -13,9 +15,9 @@ const CHART_COLORS = [
   '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1'
 ];
 
-export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
+export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metrics }) => {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [metrics, setMetrics] = useState<Metric[]>([]);
+  const { setMetrics } = useApp();
   const [activeTab, setActiveTab] = useState<'chart' | 'metrics'>('chart');
   const [showAddForm, setShowAddForm] = useState(false);
   const [metricToDelete, setMetricToDelete] = useState<string | null>(null);
@@ -60,24 +62,6 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
     setMetricToDelete(null);
   };
 
-  const addDataPoint = (metricId: string, value: number) => {
-    setMetrics(metrics.map(metric => {
-      if (metric.id === metricId) {
-        const existingEntryIndex = metric.entries.findIndex(e => e.date === selectedDate);
-        const newEntries = [...metric.entries];
-        
-        if (existingEntryIndex >= 0) {
-          newEntries[existingEntryIndex] = { date: selectedDate, value };
-        } else {
-          newEntries.push({ date: selectedDate, value });
-        }
-        
-        return { ...metric, entries: newEntries.sort((a, b) => a.date.localeCompare(b.date)) };
-      }
-      return metric;
-    }));
-  };
-
   // Function to clear metrics data for a specific date
   const clearMetricsForDate = (date: string) => {
     setMetrics(metrics.map(metric => ({
@@ -106,9 +90,15 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    const margin = { top: 20, right: 80, bottom: 40, left: 60 };
-    const width = 900 - margin.left - margin.right;
-    const height = 500 - margin.top - margin.bottom;
+    const margin = { top: 20, right: 120, bottom: 40, left: 60 };
+    
+    // Get container dimensions
+    const container = svgRef.current;
+    const containerWidth = container?.clientWidth || 900;
+    const containerHeight = container?.clientHeight || 500;
+    
+    const width = containerWidth - margin.left - margin.right;
+    const height = containerHeight - margin.top - margin.bottom;
 
     const g = svg.append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`);
@@ -226,6 +216,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
       .style('max-width', '300px');
 
     // Create invisible overlay for mouse tracking
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const overlay = g.append('rect')
       .attr('width', width)
       .attr('height', height)
@@ -324,7 +315,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
 
     metrics.forEach((metric, i) => {
       const legendItem = legend.append('g')
-        .attr('transform', `translate(0, ${i * 25})`);
+        .attr('transform', `translate(0, ${i * 30})`);
 
       legendItem.append('line')
         .attr('x1', 0)
@@ -334,12 +325,28 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
         .attr('stroke', metric.color)
         .attr('stroke-width', 2);
 
-      legendItem.append('text')
+      // Add text with wrapping for long names
+      const legendText = legendItem.append('text')
         .attr('x', 20)
         .attr('y', 0)
         .attr('dy', '0.35em')
         .attr('font-size', '12px')
+        .style('max-width', '100px') // Limit width to force wrapping
         .text(metric.name);
+
+      // Simple text wrapping for long metric names
+      const text = legendText.node();
+      if (text) {
+        const textContent = text.textContent || '';
+        
+        // Simple truncation with ellipsis for very long names
+        if (textContent.length > 15) {
+          legendText.text(textContent.substring(0, 12) + '...');
+        }
+        
+        // Add title attribute for hover tooltip
+        legendText.attr('title', metric.name);
+      }
     });
 
     // Cleanup function
@@ -347,7 +354,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
       d3.select('body').selectAll('.metrics-chart-tooltip').remove();
     };
 
-  }, [metrics, selectedDate]);
+  }, [metrics, selectedDate, activeTab]);
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 h-full flex flex-col overflow-hidden">
@@ -390,7 +397,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
             <div className="flex-1 min-h-0">
             {metrics.length > 0 ? (
               <div className="w-full h-full flex items-center justify-center">
-                <svg ref={svgRef} width="100%" height="100%" className="border border-gray-200 rounded max-w-full" />
+                <svg ref={svgRef} width="100%" height="100%" className="border border-gray-200 rounded" />
               </div>
             ) : (
               <div className="text-center py-12 text-gray-500">
@@ -405,83 +412,6 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
               </div>
             )}
           </div>
-            
-            {/* Compact Metrics Table */}
-            {metrics.length > 0 && (
-              <div className="flex-shrink-0 bg-white border border-gray-200 rounded text-xs overflow-x-auto">
-                <table className="w-full table-fixed" style={{ minWidth: 'max-content' }}>
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="w-20 px-2 py-2 text-left text-xs font-medium text-gray-700 bg-gray-50">
-                        Values
-                      </th>
-                      {metrics.map(metric => (
-                        <th key={metric.id} className="w-20 px-2 py-2 text-center text-xs font-medium text-gray-700 bg-gray-50 border-l border-gray-200">
-                          <div className="flex items-center justify-center space-x-1">
-                            <div 
-                              className="w-2 h-2 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: metric.color }}
-                            />
-                            <span className="truncate" title={metric.name}>{metric.name}</span>
-                          </div>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* Previous Values Row */}
-                    <tr className="border-b border-gray-100">
-                      <td className="w-20 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50">
-                        Previous
-                      </td>
-                      {metrics.map(metric => {
-                        const yesterdayDate = dayjs(selectedDate).subtract(1, 'day').format('YYYY-MM-DD');
-                        const yesterdayEntry = metric.entries.find(e => e.date === yesterdayDate);
-                        const yesterdayValue = yesterdayEntry?.value || 0;
-                        
-                        return (
-                          <td key={`prev-${metric.id}`} className="w-20 px-2 py-2 text-center border-l border-gray-200">
-                            {yesterdayEntry ? (
-                              <span className="text-xs text-gray-700">
-                                {yesterdayValue}{metric.unit}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-400">-</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                    
-                    {/* Current Values Row */}
-                    <tr>
-                      <td className="w-20 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50">
-                        Current
-                      </td>
-                      {metrics.map(metric => {
-                        const todayEntry = metric.entries.find(e => e.date === selectedDate);
-                        
-                        return (
-                          <td key={`today-${metric.id}`} className="w-20 px-2 py-2 text-center border-l border-gray-200">
-                            <input
-                              type="number"
-                              placeholder="0"
-                              value={todayEntry?.value || ''}
-                              onChange={(e) => {
-                                const value = parseFloat(e.target.value) || 0;
-                                addDataPoint(metric.id, value);
-                              }}
-                              className="w-full px-1 py-1 text-xs text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
-                              style={{ width: '60px' }}
-                            />
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
         ) : (
           /* Metrics Management View */
@@ -546,21 +476,21 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
             {/* Metrics List */}
             <div className="overflow-y-auto min-h-0">
               {metrics.length > 0 ? (
-                <div className="grid grid-cols-1 gap-3">
+                <div className="flex flex-wrap gap-2">
                   {metrics.map(metric => {
                     const selectedEntry = metric.entries.find(e => e.date === selectedDate);
                     const currentValue = selectedEntry?.value || 0;
                     const percentage = metric.targetValue > 0 ? (currentValue / metric.targetValue) * 100 : 0;
                     
                     return (
-                      <div key={metric.id} className="p-4 border border-gray-200 rounded-lg bg-gray-50">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center space-x-3">
+                      <div key={metric.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50 flex-shrink-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center space-x-2">
                             <div 
-                              className="w-4 h-4 rounded-full"
+                              className="w-3 h-3 rounded-full"
                               style={{ backgroundColor: metric.color }}
                             />
-                            <span className="text-lg font-semibold text-gray-900">{metric.name}</span>
+                            <span className="text-sm font-semibold text-gray-900">{metric.name}</span>
                           </div>
                           <button
                             onClick={() => removeMetric(metric.id)}
@@ -570,37 +500,33 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate }) => {
                           </button>
                         </div>
                         
-                        <div className="grid grid-cols-3 gap-4 mb-4">
+                        <div className="grid grid-cols-3 gap-2 mb-3">
                           <div className="text-center">
-                            <div className="text-sm text-gray-600">Target</div>
-                            <div className="text-lg font-bold text-gray-900">{metric.targetValue}{metric.unit}</div>
+                            <div className="text-xs text-gray-600">Target</div>
+                            <div className="text-sm font-bold text-gray-900">{metric.targetValue}{metric.unit}</div>
                           </div>
                           <div className="text-center">
-                            <div className="text-sm text-gray-600">Current</div>
-                            <div className="text-lg font-bold text-gray-900">{currentValue}{metric.unit}</div>
+                            <div className="text-xs text-gray-600">Current</div>
+                            <div className="text-sm font-bold text-gray-900">{currentValue}{metric.unit}</div>
                           </div>
                           <div className="text-center">
-                            <div className="text-sm text-gray-600">Progress</div>
-                            <div className={`text-lg font-bold ${percentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
+                            <div className="text-xs text-gray-600">Progress</div>
+                            <div className={`text-sm font-bold ${percentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
                               {percentage.toFixed(1)}%
                             </div>
                           </div>
                         </div>
                         
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
                             Value for {dayjs(selectedDate).format('MMM D, YYYY')}
                           </label>
-                          <input
-                            type="number"
-                            placeholder={`Enter ${metric.name.toLowerCase()} value`}
-                            value={selectedEntry?.value || ''}
-                            onChange={(e) => {
-                              const value = parseFloat(e.target.value) || 0;
-                              addDataPoint(metric.id, value);
-                            }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
+                          <div className="w-full px-2 py-1 bg-gray-50 border border-gray-200 rounded text-gray-700 text-sm">
+                            {selectedEntry ? `${selectedEntry.value}${metric.unit}` : 'No data entered'}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            💡 Enter daily values using the sliders in the Daily Journal section
+                          </p>
                         </div>
                       </div>
                     );
