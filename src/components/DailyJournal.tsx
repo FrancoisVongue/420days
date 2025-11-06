@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, BookOpen, Trash2, Target } from 'lucide-react';
+import { BookOpen, Trash2, Target } from 'lucide-react';
 import dayjs from 'dayjs';
 import { DailyEntry, Metric } from '../types';
 import { useApp } from '../context/AppContext';
@@ -14,8 +14,6 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
   const { entries } = state;
   
   const [content, setContent] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [showClearModal, setShowClearModal] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   
@@ -89,34 +87,25 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
     } else {
       setContent('');
     }
-    setLastSaved(null);
     
     // Load metric values for the selected date
     loadMetricValues();
   }, [selectedDate, entries, getEntryByDate, loadMetricValues]);
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    
+  // Auto-save entry when content changes
+  const autoSaveEntry = useCallback((newContent: string) => {
     const entry: DailyEntry = {
       id: `${selectedDate}-${Date.now()}`,
       date: selectedDate,
-      content: content.trim(),
+      content: newContent,
       satisfaction: 50, // Default satisfaction for compatibility
       color: '#3B82F6', // Default color
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    try {
-      saveEntry(entry);
-      setLastSaved(new Date().toLocaleTimeString());
-    } catch (error) {
-      console.error('Failed to save entry:', error);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+    saveEntry(entry);
+  }, [selectedDate, saveEntry]);
 
   const handleClearData = async () => {
     setIsClearing(true);
@@ -137,7 +126,6 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
       
       // Reset form state
       setContent('');
-      setLastSaved(null);
       
       setShowClearModal(false);
     } catch (error) {
@@ -165,11 +153,6 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
             </p>
           </div>
         </div>
-        {lastSaved && (
-          <div className="text-sm text-green-600">
-            Saved at {lastSaved}
-          </div>
-        )}
       </div>
 
       {/* Main Content: 75% Journal + 25% Metrics */}
@@ -182,7 +165,11 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
           <textarea
             id="journal-content"
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => {
+              const newContent = e.target.value;
+              setContent(newContent);
+              autoSaveEntry(newContent);
+            }}
             placeholder={isToday ? "What happened today? How are you feeling? What did you learn?" : "What do you remember about this day?"}
             className="w-full flex-1 min-h-0 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none overflow-y-auto"
           />
@@ -251,15 +238,6 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
         >
           <Trash2 className="w-4 h-4" />
           <span>Clear Data</span>
-        </button>
-        
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-        >
-          <Save className="w-4 h-4" />
-          <span>{isSaving ? 'Saving...' : 'Save Entry'}</span>
         </button>
       </div>
 

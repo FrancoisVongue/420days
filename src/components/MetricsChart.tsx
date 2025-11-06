@@ -173,7 +173,9 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
     metrics.forEach(metric => {
       if (metric.entries.length === 0) return;
 
-      const lineData = metric.entries.map(entry => ({
+      const lineData = metric.entries
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .map(entry => ({
         date: dayjs(entry.date).toDate(),
         percentage: (entry.value / metric.targetValue) * 100
       }));
