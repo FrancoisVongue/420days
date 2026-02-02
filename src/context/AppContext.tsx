@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { DailyEntry, Metric, Year, Epoch } from '../types';
+import { DailyEntry, Metric, Year, Epoch, Task } from '../types';
 import dayjs from 'dayjs';
 
 const EPOCH_COLORS = [
@@ -12,6 +12,7 @@ const EPOCH_COLORS = [
 interface AppState {
   entries: DailyEntry[];
   metrics: Metric[];
+  tasks: Task[];
   selectedDate: string;
   years: Year[];
   selectedYearId: string;
@@ -22,6 +23,7 @@ interface AppContextType {
   setState: (updates: Partial<AppState> | ((prev: AppState) => AppState)) => void;
   setEntries: (entries: DailyEntry[]) => void;
   setMetrics: (metrics: Metric[]) => void;
+  setTasks: (tasks: Task[]) => void;
   setSelectedDate: (date: string) => void;
   exportData: () => void;
   importData: (jsonString: string) => boolean;
@@ -41,6 +43,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const ENTRIES_KEY = 'daily-writing-entries';
 const METRICS_KEY = 'daily-writing-metrics';
+const TASKS_KEY = 'daily-writing-tasks';
 const SELECTED_DATE_KEY = 'daily-writing-selected-date';
 const YEARS_KEY = 'daily-writing-years';
 const SELECTED_YEAR_KEY = 'daily-writing-selected-year';
@@ -83,6 +86,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return {
       entries: loadFromStorage<DailyEntry[]>(ENTRIES_KEY, []),
       metrics: loadFromStorage<Metric[]>(METRICS_KEY, []),
+      tasks: loadFromStorage<Task[]>(TASKS_KEY, []),
       selectedDate: loadFromStorage<string>(SELECTED_DATE_KEY, new Date().toISOString().split('T')[0]),
       years: loadedYears,
       selectedYearId: selectedYearId || loadedYears[0].id
@@ -96,6 +100,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     saveToStorage(METRICS_KEY, state.metrics);
   }, [state.metrics]);
+
+  useEffect(() => {
+    saveToStorage(TASKS_KEY, state.tasks);
+  }, [state.tasks]);
 
   useEffect(() => {
     saveToStorage(SELECTED_DATE_KEY, state.selectedDate);
@@ -124,6 +132,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const setMetrics = (metrics: Metric[]) => {
     updateState({ metrics });
+  };
+
+  const setTasks = (tasks: Task[]) => {
+    updateState({ tasks });
   };
 
   const setSelectedDate = (selectedDate: string) => {
@@ -316,6 +328,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setState: updateState,
       setEntries,
       setMetrics,
+      setTasks,
       setSelectedDate,
       exportData,
       importData,

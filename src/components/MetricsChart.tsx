@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import dayjs from 'dayjs';
-import { Plus, X, Target, TrendingUp, BarChart3, Settings } from 'lucide-react';
-import { Metric } from '../types';
+import { Plus, X, Target, TrendingUp, BarChart3, Settings, CheckSquare } from 'lucide-react';
+import { Metric, Task } from '../types';
 import { useApp } from '../context/AppContext';
 
 interface MetricsChartProps {
@@ -17,17 +17,25 @@ const CHART_COLORS = [
 
 export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metrics }) => {
   const svgRef = useRef<SVGSVGElement>(null);
-  const { setMetrics, state } = useApp();
-  const { years, selectedYearId } = state;
+  const { setMetrics, setTasks, state } = useApp();
+  const { years, selectedYearId, tasks } = state;
   const selectedYear = years.find(y => y.id === selectedYearId);
   
-  const [activeTab, setActiveTab] = useState<'chart' | 'metrics'>('chart');
+  const [activeTab, setActiveTab] = useState<'chart' | 'metrics' | 'tasks'>('chart');
   const [showAddForm, setShowAddForm] = useState(false);
   const [metricToDelete, setMetricToDelete] = useState<string | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
   const [newMetric, setNewMetric] = useState({
     name: '',
     targetValue: '',
     unit: '',
+    epochId: '',
+    tags: ''
+  });
+  const [newTask, setNewTask] = useState({
+    name: '',
+    description: '',
+    dueDate: '',
     epochId: '',
     tags: ''
   });
@@ -36,8 +44,11 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedEpochFilter, setSelectedEpochFilter] = useState<string>('');
   
-  // Get all unique tags from metrics
-  const allTags = Array.from(new Set(metrics.flatMap(m => m.tags || [])));
+  // Get all unique tags from metrics AND tasks
+  const allTags = Array.from(new Set([
+    ...metrics.flatMap(m => m.tags || []),
+    ...tasks.flatMap(t => t.tags || [])
+  ]));
 
   // Filter metrics based on selected tags and epoch
   const filteredMetrics = metrics.filter(metric => {
@@ -104,6 +115,46 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
 
   const cancelDeleteMetric = () => {
     setMetricToDelete(null);
+  };
+
+  // Task management functions
+  const addTask = () => {
+    if (!newTask.name || !newTask.dueDate) return;
+
+    const tagsArray = newTask.tags
+      .split(',')
+      .map(tag => tag.trim())
+      .filter(tag => tag.length > 0);
+
+    const task: Task = {
+      id: Date.now().toString(),
+      name: newTask.name,
+      description: newTask.description,
+      dueDate: newTask.dueDate,
+      tags: tagsArray.length > 0 ? tagsArray : undefined,
+      epochId: newTask.epochId || undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    setTasks([...tasks, task]);
+    setNewTask({ name: '', description: '', dueDate: '', epochId: '', tags: '' });
+    setShowAddForm(false);
+  };
+
+  const removeTask = (id: string) => {
+    setTaskToDelete(id);
+  };
+
+  const confirmDeleteTask = () => {
+    if (taskToDelete) {
+      setTasks(tasks.filter(t => t.id !== taskToDelete));
+      setTaskToDelete(null);
+    }
+  };
+
+  const cancelDeleteTask = () => {
+    setTaskToDelete(null);
   };
 
   // Function to clear metrics data for a specific date
@@ -264,6 +315,44 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
         .attr('fill', metric.color)
         .attr('stroke', 'white')
         .attr('stroke-width', 2);
+    });
+
+    // Draw tasks as points at 100% on their due date
+    const filteredTasks = tasks.filter(task => {
+      // Filter by tags (OR logic)
+      if (selectedTags.length > 0) {
+        const hasSelectedTag = task.tags?.some(tag => selectedTags.includes(tag));
+        if (!hasSelectedTag) return false;
+      }
+      
+      // Filter by epoch
+      if (selectedEpochFilter) {
+        if (task.epochId && task.epochId !== selectedEpochFilter) return false;
+      }
+      
+      return true;
+    });
+
+    filteredTasks.forEach(task => {
+      const taskDate = dayjs(task.dueDate).toDate();
+      
+      // Only draw if task date is within the visible date range
+      if (taskDate >= startDate.toDate() && taskDate <= endDate.toDate()) {
+        const isCompleted = !!task.completedDate;
+        
+        // Draw task as a point at 100%
+        g.append('circle')
+          .attr('cx', xScale(taskDate))
+          .attr('cy', yScale(100))
+          .attr('r', 6)
+          .attr('fill', isCompleted ? '#10B981' : '#F59E0B')
+          .attr('stroke', 'white')
+          .attr('stroke-width', 2)
+          .attr('opacity', 0.9)
+          .style('cursor', 'pointer')
+          .append('title')
+          .text(`${task.name}\nDue: ${dayjs(task.dueDate).format('MMM D, YYYY')}${isCompleted ? '\n✓ Completed' : ''}`);
+      }
     });
 
     // Create tooltip
@@ -455,6 +544,17 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
           <Settings className="w-4 h-4" />
           <span>Metrics</span>
         </button>
+        <button
+          onClick={() => setActiveTab('tasks')}
+          className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            activeTab === 'tasks'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+        >
+          <CheckSquare className="w-4 h-4" />
+          <span>Tasks</span>
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -532,7 +632,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
             )}
           </div>
           </div>
-        ) : (
+        ) : activeTab === 'metrics' ? (
           /* Metrics Management View */
           <div className="flex-1 flex flex-col gap-3 overflow-hidden">
             {/* Add Metric Button */}
@@ -740,10 +840,210 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
               )}
             </div>
           </div>
+        ) : (
+          /* Tasks Management View */
+          <div className="flex-1 flex flex-col gap-3 overflow-hidden">
+            {/* Add Task Button */}
+            <div className="flex justify-between items-center flex-shrink-0">
+              <p className="text-sm text-gray-600">Manage your tasks and deadlines</p>
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Task</span>
+              </button>
+            </div>
+
+            {/* Add Task Form */}
+            {showAddForm && (
+              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 flex-shrink-0">
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <input
+                      type="text"
+                      placeholder="Task name"
+                      value={newTask.name}
+                      onChange={(e) => setNewTask({ ...newTask, name: e.target.value })}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      type="date"
+                      placeholder="Due date"
+                      value={newTask.dueDate}
+                      onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <select
+                      value={newTask.epochId}
+                      onChange={(e) => setNewTask({ ...newTask, epochId: e.target.value })}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">All year</option>
+                      {selectedYear?.epochs.map(epoch => (
+                        <option key={epoch.id} value={epoch.id}>{epoch.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Tags (comma-separated)"
+                      value={newTask.tags}
+                      onChange={(e) => setNewTask({ ...newTask, tags: e.target.value })}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  
+                  <textarea
+                    placeholder="Description (optional)"
+                    value={newTask.description}
+                    onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    rows={2}
+                  />
+                  
+                  {/* Tags quick-add buttons */}
+                  {allTags.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-gray-600">Quick add:</span>
+                        {allTags.map(tag => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => {
+                              const currentTags = newTask.tags.split(',').map(t => t.trim()).filter(t => t);
+                              if (!currentTags.includes(tag)) {
+                                setNewTask({ 
+                                  ...newTask, 
+                                  tags: currentTags.length > 0 ? `${newTask.tags}, ${tag}` : tag 
+                                });
+                              }
+                            }}
+                            className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300"
+                          >
+                            + {tag}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={addTask}
+                      className="px-4 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                    >
+                      Add Task
+                    </button>
+                    <button
+                      onClick={() => setShowAddForm(false)}
+                      className="px-4 py-2 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tasks List */}
+            <div className="flex-1 overflow-y-auto">
+              {tasks.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Name</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Due Date</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Epoch</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Status</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Tags</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tasks.map(task => {
+                        const isCompleted = !!task.completedDate;
+                        const isOverdue = !isCompleted && dayjs(task.dueDate).isBefore(dayjs(), 'day');
+                        const taskEpoch = task.epochId ? selectedYear?.epochs.find(e => e.id === task.epochId) : null;
+                        
+                        return (
+                          <tr key={task.id} className="border-b border-gray-200 hover:bg-gray-50">
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-gray-900">{task.name}</div>
+                              {task.description && (
+                                <div className="text-xs text-gray-500 mt-0.5">{task.description}</div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-gray-600">
+                              {dayjs(task.dueDate).format('MMM D, YYYY')}
+                            </td>
+                            <td className="px-3 py-2">
+                              {taskEpoch ? (
+                                <span className="text-xs text-gray-700">{taskEpoch.name}</span>
+                              ) : (
+                                <span className="text-xs text-gray-400">All year</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              {isCompleted ? (
+                                <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full">
+                                  Completed
+                                </span>
+                              ) : isOverdue ? (
+                                <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
+                                  Overdue
+                                </span>
+                              ) : (
+                                <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">
+                                  Pending
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              {task.tags && task.tags.length > 0 ? (
+                                <div className="flex gap-1 flex-wrap">
+                                  {task.tags.map(tag => (
+                                    <span
+                                      key={tag}
+                                      className="px-2 py-0.5 text-xs bg-gray-200 text-gray-700 rounded-full"
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400 text-xs">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <button
+                                onClick={() => removeTask(task.id)}
+                                className="text-red-600 hover:text-red-700 transition-colors"
+                                title="Delete task"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-12 text-gray-500">
+                  <CheckSquare className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                  <p className="mb-4">No tasks created yet.</p>
+                  <p className="text-sm">Click "Add Task" to start organizing your work!</p>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Metric Confirmation Modal */}
       {metricToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
@@ -787,6 +1087,48 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
                 className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
               >
                 Delete Metric
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Task Confirmation Modal */}
+      {taskToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="flex items-center justify-center w-10 h-10 bg-red-100 rounded-full">
+                <X className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Delete Task</h3>
+                <p className="text-sm text-gray-600">This action cannot be undone</p>
+              </div>
+            </div>
+            
+            <div className="mb-6">
+              <p className="text-gray-700">
+                Are you sure you want to delete the task "
+                <span className="font-semibold">
+                  {tasks.find(t => t.id === taskToDelete)?.name}
+                </span>
+                "?
+              </p>
+            </div>
+            
+            <div className="flex space-x-3 justify-end">
+              <button
+                onClick={cancelDeleteTask}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteTask}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+              >
+                Delete Task
               </button>
             </div>
           </div>

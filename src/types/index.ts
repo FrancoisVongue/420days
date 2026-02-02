@@ -33,6 +33,18 @@ export interface Metric {
   tags?: string[]; // Optional: tags for filtering and organization
 }
 
+export interface Task {
+  id: string;
+  name: string;
+  description?: string;
+  dueDate: string; // YYYY-MM-DD - deadline for task
+  tags?: string[];
+  epochId?: string; // Optional: if set, task belongs to specific epoch
+  completedDate?: string; // YYYY-MM-DD - when task was completed
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Epoch {
   id: string;
   name: string;

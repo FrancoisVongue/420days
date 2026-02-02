@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Trash2, Target } from 'lucide-react';
+import { BookOpen, Trash2, Target, CheckSquare } from 'lucide-react';
 import dayjs from 'dayjs';
-import { DailyEntry, Metric } from '../types';
+import { DailyEntry, Metric, Task } from '../types';
 import { useApp } from '../context/AppContext';
 
 interface DailyJournalProps {
@@ -10,8 +10,8 @@ interface DailyJournalProps {
 }
 
 export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metrics }) => {
-  const { state, setEntries, setMetrics } = useApp();
-  const { entries, years, selectedYearId } = state;
+  const { state, setEntries, setMetrics, setTasks } = useApp();
+  const { entries, years, selectedYearId, tasks } = state;
   
   const [content, setContent] = useState('');
   const [showClearModal, setShowClearModal] = useState(false);
@@ -45,6 +45,46 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
   // Split metrics into epoch and all-year groups
   const epochMetrics = sortedMetrics.filter(m => m.epochId === currentEpoch?.id);
   const allYearMetrics = sortedMetrics.filter(m => !m.epochId);
+
+  // Filter tasks: show tasks with dueDate >= selectedDate AND (not completed OR completed after selectedDate)
+  // Also filter by epoch like metrics
+  const visibleTasks = tasks.filter(task => {
+    // Task should be visible if due date hasn't passed yet
+    if (task.dueDate < selectedDate) return false;
+    
+    // If not completed, show it
+    if (!task.completedDate) {
+      // Filter by epoch
+      if (!task.epochId) return true; // Show tasks without epochId (all year)
+      if (!currentEpoch) return false; // If no epoch for this date, don't show epoch-specific tasks
+      return task.epochId === currentEpoch.id; // Show only tasks for current epoch
+    }
+    
+    // If completed, only show if completed date is after selected date (task was still pending on this date)
+    if (task.completedDate > selectedDate) {
+      // Filter by epoch
+      if (!task.epochId) return true;
+      if (!currentEpoch) return false;
+      return task.epochId === currentEpoch.id;
+    }
+    
+    return false;
+  });
+
+  // Toggle task completion
+  const toggleTaskCompletion = (taskId: string) => {
+    setTasks(tasks.map(task => {
+      if (task.id === taskId) {
+        // If already completed, uncomplete it; otherwise complete it with current date
+        return {
+          ...task,
+          completedDate: task.completedDate ? undefined : selectedDate,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return task;
+    }));
+  };
 
   // Load metric values for the selected date
   const loadMetricValues = useCallback(() => {
@@ -181,9 +221,9 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
         </div>
       </div>
 
-      {/* Main Content: 75% Journal + 25% Metrics */}
+      {/* Main Content: Journal + Metrics + Tasks */}
       <div className="overflow-hidden min-h-0 flex gap-3">
-        {/* Journal Section - 75% */}
+        {/* Journal Section - 50% */}
         <div className="flex-1 flex flex-col min-w-0">
           <label htmlFor="journal-content" className="block text-sm font-medium text-gray-700 mb-2 flex-shrink-0">
             Your thoughts and reflections
@@ -305,6 +345,63 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
                   })}
                 </>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Tasks Section - 25% */}
+        <div className="w-1/4 min-w-0 flex flex-col bg-gray-50 rounded-lg p-3 border border-gray-200">
+          <div className="flex items-center space-x-2 mb-2 flex-shrink-0">
+            <CheckSquare className="w-3 h-3 text-blue-600" />
+            <label className="text-xs font-semibold text-gray-700">
+              Tasks
+            </label>
+          </div>
+          
+          {visibleTasks.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center text-center text-gray-500 text-sm">
+              <div>
+                <CheckSquare className="w-6 h-6 mx-auto mb-2 text-gray-400" />
+                <p>No tasks for today</p>
+                <p className="text-xs">Create tasks in the chart view</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto pr-2 space-y-1.5 custom-scrollbar">
+              {visibleTasks.map(task => {
+                const isCompleted = task.completedDate === selectedDate;
+                const isOverdue = dayjs(task.dueDate).isBefore(dayjs(selectedDate), 'day');
+                
+                return (
+                  <div key={task.id} className="space-y-0">
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={isCompleted}
+                        onChange={() => toggleTaskCompletion(task.id)}
+                        className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <label className={`text-xs font-medium leading-tight cursor-pointer ${
+                          isCompleted ? 'line-through text-gray-400' : 'text-gray-700'
+                        }`}>
+                          {task.name}
+                        </label>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className={`text-[10px] leading-tight ${
+                            isOverdue ? 'text-red-600 font-semibold' : 'text-gray-500'
+                          }`}>
+                            {dayjs(task.dueDate).format('MMM D')}
+                          </span>
+                          {isOverdue && !isCompleted && (
+                            <span className="text-[10px] text-red-600 font-semibold">⚠️</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
