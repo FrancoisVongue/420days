@@ -17,18 +17,60 @@ const CHART_COLORS = [
 
 export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metrics }) => {
   const svgRef = useRef<SVGSVGElement>(null);
-  const { setMetrics } = useApp();
+  const { setMetrics, state } = useApp();
+  const { years, selectedYearId } = state;
+  const selectedYear = years.find(y => y.id === selectedYearId);
+  
   const [activeTab, setActiveTab] = useState<'chart' | 'metrics'>('chart');
   const [showAddForm, setShowAddForm] = useState(false);
   const [metricToDelete, setMetricToDelete] = useState<string | null>(null);
   const [newMetric, setNewMetric] = useState({
     name: '',
     targetValue: '',
-    unit: ''
+    unit: '',
+    epochId: '',
+    tags: ''
   });
+  
+  // Filter states
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedEpochFilter, setSelectedEpochFilter] = useState<string>('');
+  
+  // Get all unique tags from metrics
+  const allTags = Array.from(new Set(metrics.flatMap(m => m.tags || [])));
+
+  // Filter metrics based on selected tags and epoch
+  const filteredMetrics = metrics.filter(metric => {
+    // Filter by tags (OR logic - show if metric has ANY of selected tags)
+    if (selectedTags.length > 0) {
+      const hasSelectedTag = metric.tags?.some(tag => selectedTags.includes(tag));
+      if (!hasSelectedTag) return false;
+    }
+    
+    // Filter by epoch (show only metrics for selected epoch or all-year metrics)
+    if (selectedEpochFilter) {
+      if (metric.epochId && metric.epochId !== selectedEpochFilter) return false;
+    }
+    
+    return true;
+  });
+
+  // Toggle tag selection
+  const toggleTag = (tag: string) => {
+    setSelectedTags(prev => 
+      prev.includes(tag) 
+        ? prev.filter(t => t !== tag)
+        : [...prev, tag]
+    );
+  };
 
   const addMetric = () => {
     if (!newMetric.name || !newMetric.targetValue) return;
+
+    const tagsArray = newMetric.tags
+      .split(',')
+      .map(tag => tag.trim())
+      .filter(tag => tag.length > 0);
 
     const metric: Metric = {
       id: Date.now().toString(),
@@ -36,11 +78,13 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
       color: CHART_COLORS[metrics.length % CHART_COLORS.length],
       targetValue: parseFloat(newMetric.targetValue),
       entries: [],
-      unit: newMetric.unit
+      unit: newMetric.unit,
+      epochId: newMetric.epochId || undefined,
+      tags: tagsArray.length > 0 ? tagsArray : undefined
     };
 
     setMetrics([...metrics, metric]);
-    setNewMetric({ name: '', targetValue: '', unit: '' });
+    setNewMetric({ name: '', targetValue: '', unit: '', epochId: '', tags: '' });
     setShowAddForm(false);
   };
 
@@ -85,7 +129,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
   }, [selectedDate]);
 
   useEffect(() => {
-    if (!svgRef.current || metrics.length === 0) return;
+    if (!svgRef.current || filteredMetrics.length === 0) return;
 
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
@@ -103,11 +147,21 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
     const g = svg.append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`);
 
-    // Get date range from all metrics
+    // Get date range from filtered metrics
     const allDates = new Set<string>();
     const allPercentages: number[] = [];
-    metrics.forEach(metric => {
-      metric.entries.forEach(entry => allDates.add(entry.date));
+    filteredMetrics.forEach(metric => {
+      metric.entries.forEach(entry => {
+        // If epoch filter is active, only include dates within that epoch
+        if (selectedEpochFilter) {
+          const selectedEpoch = selectedYear?.epochs.find(e => e.id === selectedEpochFilter);
+          if (selectedEpoch && entry.date >= selectedEpoch.startDate && entry.date <= selectedEpoch.endDate) {
+            allDates.add(entry.date);
+          }
+        } else {
+          allDates.add(entry.date);
+        }
+      });
       metric.entries.forEach(entry => {
         const percentage = (entry.value / metric.targetValue) * 100;
         allPercentages.push(percentage);
@@ -169,16 +223,27 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
       .y(d => yScale(d.percentage))
       .curve(d3.curveMonotoneX);
 
-    // Draw lines for each metric
-    metrics.forEach(metric => {
+    // Draw lines for each filtered metric
+    filteredMetrics.forEach(metric => {
       if (metric.entries.length === 0) return;
 
-      const lineData = metric.entries
+      // Filter entries by epoch if selected
+      let entries = metric.entries;
+      if (selectedEpochFilter) {
+        const selectedEpoch = selectedYear?.epochs.find(e => e.id === selectedEpochFilter);
+        if (selectedEpoch) {
+          entries = entries.filter(e => e.date >= selectedEpoch.startDate && e.date <= selectedEpoch.endDate);
+        }
+      }
+
+      const lineData = entries
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
         .map(entry => ({
         date: dayjs(entry.date).toDate(),
         percentage: (entry.value / metric.targetValue) * 100
       }));
+
+      if (lineData.length === 0) return;
 
       // Line path
       g.append('path')
@@ -234,7 +299,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
         let closestDate: Date | null = null;
         let minDistance = Infinity;
         
-        metrics.forEach(metric => {
+        filteredMetrics.forEach(metric => {
           metric.entries.forEach(entry => {
             const entryDate = dayjs(entry.date).toDate();
             const distance = Math.abs(entryDate.getTime() - hoveredDate.getTime());
@@ -262,7 +327,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
           unit: string;
         }> = [];
         
-        metrics.forEach(metric => {
+        filteredMetrics.forEach(metric => {
           const entry = metric.entries.find(e => e.date === closestDateStr);
           if (entry) {
             tooltipData.push({
@@ -317,7 +382,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
     const legend = g.append('g')
       .attr('transform', `translate(${width + 10}, 20)`);
 
-    metrics.forEach((metric, i) => {
+    filteredMetrics.forEach((metric, i) => {
       const legendItem = legend.append('g')
         .attr('transform', `translate(0, ${i * 30})`);
 
@@ -358,7 +423,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
       d3.select('body').selectAll('.metrics-chart-tooltip').remove();
     };
 
-  }, [metrics, selectedDate, activeTab]);
+  }, [filteredMetrics, selectedDate, activeTab, selectedEpochFilter, selectedYear]);
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 h-full flex flex-col overflow-hidden">
@@ -396,7 +461,57 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {activeTab === 'chart' ? (
           /* Chart View */
-          <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 flex flex-col min-h-0 gap-3">
+            {/* Filters for Chart */}
+            {metrics.length > 0 && (
+              <div className="flex flex-col gap-2 flex-shrink-0">
+                {/* Tags Filter */}
+                {allTags.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-gray-700">Tags:</span>
+                    {allTags.map(tag => (
+                      <button
+                        key={tag}
+                        onClick={() => toggleTag(tag)}
+                        className={`px-2 py-1 text-xs rounded-full transition-colors ${
+                          selectedTags.includes(tag)
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                    {selectedTags.length > 0 && (
+                      <button
+                        onClick={() => setSelectedTags([])}
+                        className="px-2 py-1 text-xs text-red-600 hover:text-red-700"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                )}
+                
+                {/* Epoch Filter */}
+                {selectedYear && selectedYear.epochs.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700">Epoch:</span>
+                    <select
+                      value={selectedEpochFilter}
+                      onChange={(e) => setSelectedEpochFilter(e.target.value)}
+                      className="px-3 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">All epochs</option>
+                      {selectedYear.epochs.map(epoch => (
+                        <option key={epoch.id} value={epoch.id}>{epoch.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+            
             {/* Chart Area */}
             <div className="flex-1 min-h-0">
             {metrics.length > 0 ? (
@@ -436,7 +551,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
             {showAddForm && (
               <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 flex-shrink-0">
                 <div className="grid grid-cols-1 gap-3">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                     <input
                       type="text"
                       placeholder="Metric name (e.g., Weight)"
@@ -458,7 +573,52 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
                       onChange={(e) => setNewMetric({ ...newMetric, unit: e.target.value })}
                       className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                    <select
+                      value={newMetric.epochId}
+                      onChange={(e) => setNewMetric({ ...newMetric, epochId: e.target.value })}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">All year</option>
+                      {selectedYear?.epochs.map(epoch => (
+                        <option key={epoch.id} value={epoch.id}>{epoch.name}</option>
+                      ))}
+                    </select>
                   </div>
+                  
+                  {/* Tags input with existing tags as buttons */}
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="text"
+                      placeholder="Add tags (comma-separated)"
+                      value={newMetric.tags}
+                      onChange={(e) => setNewMetric({ ...newMetric, tags: e.target.value })}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    {allTags.length > 0 && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-gray-600">Quick add:</span>
+                        {allTags.map(tag => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => {
+                              const currentTags = newMetric.tags.split(',').map(t => t.trim()).filter(t => t);
+                              if (!currentTags.includes(tag)) {
+                                setNewMetric({ 
+                                  ...newMetric, 
+                                  tags: currentTags.length > 0 ? `${newMetric.tags}, ${tag}` : tag 
+                                });
+                              }
+                            }}
+                            className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300"
+                          >
+                            + {tag}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  
                   <div className="flex space-x-2">
                     <button
                       onClick={addMetric}
@@ -477,88 +637,107 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
               </div>
             )}
 
-            {/* Metrics List */}
-            <div className="flex-1 overflow-y-auto w-full overflow-x-hidden p-4">
+            {/* Metrics List - Table View */}
+            <div className="flex-1 overflow-y-auto">
               {metrics.length > 0 ? (
-                <div className="flex flex-wrap gap-2 w-full">  {/* Add this wrapper */}
-
-                  {metrics.map(metric => {
-                    const selectedEntry = metric.entries.find(e => e.date === selectedDate);
-                    const currentValue = selectedEntry?.value || 0;
-                    const percentage = metric.targetValue > 0 ? (currentValue / metric.targetValue) * 100 : 0;
-                    
-                    return (
-                      <div key={metric.id} 
-                      className="p-3 border border-gray-200 rounded-lg bg-gray-50 w-80"
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              checked={metric.isDefault || false}
-                              onChange={(e) => {
-                                const updatedMetrics = metrics.map(m => ({
-                                  ...m,
-                                  isDefault: m.id === metric.id ? e.target.checked : false
-                                }));
-                                setMetrics(updatedMetrics);
-                              }}
-                              className="w-3 h-3 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                              title="Set as default metric"
-                            />
-                            <div
-                              className="w-3 h-3 rounded-full"
-                              style={{ backgroundColor: metric.color }}
-                            />
-                            <span className="text-sm font-semibold text-gray-900">{metric.name}</span>
-                          </div>
-                          <button
-                            onClick={() => removeMetric(metric.id)}
-                            className="text-gray-400 hover:text-red-500 transition-colors"
-                          >
-                            <X className="w-5 h-5" />
-                          </button>
-                        </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Default</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Name</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Tags</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Epoch</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Target</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Current</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Progress</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {metrics.map(metric => {
+                        const selectedEntry = metric.entries.find(e => e.date === selectedDate);
+                        const currentValue = selectedEntry?.value || 0;
+                        const percentage = metric.targetValue > 0 ? (currentValue / metric.targetValue) * 100 : 0;
+                        const epochName = metric.epochId 
+                          ? selectedYear?.epochs.find(e => e.id === metric.epochId)?.name || 'Unknown'
+                          : 'All year';
                         
-                        <div className="grid grid-cols-3 gap-2 mb-3">
-                          <div className="text-center">
-                            <div className="text-xs text-gray-600">Target</div>
-                            <div className="text-sm font-bold text-gray-900">{metric.targetValue}{metric.unit}</div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-xs text-gray-600">Current</div>
-                            <div className="text-sm font-bold text-gray-900">{currentValue}{metric.unit}</div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-xs text-gray-600">Progress</div>
-                            <div className={`text-sm font-bold ${percentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
-                              {percentage.toFixed(1)}%
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">
-                            Value for {dayjs(selectedDate).format('MMM D, YYYY')}
-                          </label>
-                          <div className="w-full px-2 py-1 bg-gray-50 border border-gray-200 rounded text-gray-700 text-sm">
-                            {selectedEntry ? `${selectedEntry.value}${metric.unit}` : 'No data entered'}
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            💡 Enter daily values using the sliders in the Daily Journal section
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
+                        return (
+                          <tr key={metric.id} className="border-b border-gray-200 hover:bg-gray-50">
+                            <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                checked={metric.isDefault || false}
+                                onChange={(e) => {
+                                  const updatedMetrics = metrics.map(m => ({
+                                    ...m,
+                                    isDefault: m.id === metric.id ? e.target.checked : false
+                                  }));
+                                  setMetrics(updatedMetrics);
+                                }}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                title="Set as default metric"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex items-center space-x-2">
+                                <div
+                                  className="w-3 h-3 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: metric.color }}
+                                />
+                                <span className="font-medium text-gray-900">{metric.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              {metric.tags && metric.tags.length > 0 ? (
+                                <div className="flex gap-1 flex-wrap">
+                                  {metric.tags.map(tag => (
+                                    <span
+                                      key={tag}
+                                      className="px-2 py-0.5 text-xs bg-gray-200 text-gray-700 rounded-full"
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400 text-xs">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-gray-600">{epochName}</td>
+                            <td className="px-3 py-2 text-gray-900">{metric.targetValue}{metric.unit}</td>
+                            <td className="px-3 py-2 text-gray-900">{currentValue}{metric.unit}</td>
+                            <td className="px-3 py-2">
+                              <span className={`font-semibold ${percentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
+                                {percentage.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <button
+                                onClick={() => removeMetric(metric.id)}
+                                className="text-gray-400 hover:text-red-500 transition-colors"
+                                title="Delete metric"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <p className="text-xs text-gray-500 mt-3 px-3">
+                    💡 Enter daily values using the sliders in the Daily Journal section
+                  </p>
                 </div>
               ) : (
-                    <div className="text-center py-12 text-gray-500">
-                      <Target className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                      <p className="mb-4">No metrics created yet.</p>
-                      <p className="text-sm">Click "Add Metric" to start tracking your progress!</p>
-                    </div>
-                  )}
+                <div className="text-center py-12 text-gray-500">
+                  <Target className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                  <p className="mb-4">No metrics created yet.</p>
+                  <p className="text-sm">Click "Add Metric" to start tracking your progress!</p>
+                </div>
+              )}
             </div>
           </div>
         )}

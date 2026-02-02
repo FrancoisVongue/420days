@@ -14,6 +14,7 @@ interface EpochRowProps {
   selectedMetricId: string;
   onDateSelect: (date: string) => void;
   isCurrentEpoch: boolean;
+  maxDays: number;
 }
 
 export const EpochRow: React.FC<EpochRowProps> = ({
@@ -22,7 +23,8 @@ export const EpochRow: React.FC<EpochRowProps> = ({
   selectedDate,
   selectedMetricId,
   onDateSelect,
-  isCurrentEpoch
+  isCurrentEpoch,
+  maxDays
 }) => {
   const [tooltip, setTooltip] = useState<{ visible: boolean; content: string; x: number; y: number }>({
     visible: false,
@@ -80,7 +82,7 @@ export const EpochRow: React.FC<EpochRowProps> = ({
         </div>
       )}
       <div className="grid gap-1" style={{
-        gridTemplateColumns: `repeat(auto-fit, minmax(10px, 1fr))`,
+        gridTemplateColumns: `repeat(${maxDays}, 1fr)`,
         gridAutoRows: '1fr'
       }}>
         {days.map((day) => (

@@ -37,21 +37,83 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, metrics, sele
     );
   }
 
-  // Prepare data for each epoch
+  // Build complete timeline with epochs and gaps
   const sortedEpochs = [...selectedYear.epochs].sort((a, b) => 
     a.startDate.localeCompare(b.startDate)
   );
   
-  const epochsData = sortedEpochs.map(epoch => {
-    const days = [];
-    const start = dayjs(epoch.startDate);
-    const end = dayjs(epoch.endDate);
+  const allEpochsData = [];
+  const yearStart = dayjs(selectedYear.startDate);
+  const yearEnd = dayjs(selectedYear.endDate);
+  let currentDate = yearStart;
+  
+  for (const epoch of sortedEpochs) {
+    const epochStart = dayjs(epoch.startDate);
     
-    for (let d = start; d.isBefore(end) || d.isSame(end); d = d.add(1, 'day')) {
+    // Add gap before epoch if exists
+    if (currentDate.isBefore(epochStart)) {
+      const gapDays = [];
+      for (let d = currentDate; d.isBefore(epochStart); d = d.add(1, 'day')) {
+        const dateStr = d.format('YYYY-MM-DD');
+        const entry = entries.find(e => e.date === dateStr) || null;
+        
+        let percentage = 100;
+        if (selectedMetricId) {
+          const selectedMetric = metrics.find(m => m.id === selectedMetricId);
+          if (selectedMetric) {
+            const metricEntry = selectedMetric.entries.find(e => e.date === dateStr);
+            if (metricEntry && selectedMetric.targetValue > 0) {
+              percentage = Math.min(100, (metricEntry.value / selectedMetric.targetValue) * 100);
+            } else {
+              percentage = 0;
+            }
+          }
+        }
+        
+        gapDays.push({ 
+          date: dateStr, 
+          entry, 
+          percentage, 
+          epoch: { 
+            id: `gap-${dateStr}`, 
+            name: 'No Epoch', 
+            description: 'Days not in any epoch',
+            startDate: dateStr,
+            endDate: dateStr,
+            color: '#e5e7eb',
+            createdAt: '',
+            updatedAt: ''
+          } 
+        });
+      }
+      
+      if (gapDays.length > 0) {
+        allEpochsData.push({
+          epoch: {
+            id: `gap-${gapDays[0].date}`,
+            name: 'No Epoch',
+            description: 'Days not assigned to any epoch',
+            startDate: gapDays[0].date,
+            endDate: gapDays[gapDays.length - 1].date,
+            color: '#e5e7eb',
+            createdAt: '',
+            updatedAt: ''
+          },
+          days: gapDays
+        });
+      }
+    }
+    
+    // Add epoch days
+    const epochDays = [];
+    const epochStartDate = dayjs(epoch.startDate);
+    const epochEndDate = dayjs(epoch.endDate);
+    
+    for (let d = epochStartDate; d.isBefore(epochEndDate) || d.isSame(epochEndDate); d = d.add(1, 'day')) {
       const dateStr = d.format('YYYY-MM-DD');
       const entry = entries.find(e => e.date === dateStr) || null;
       
-      let percentage = 100; // Default full color
+      let percentage = 100;
       if (selectedMetricId) {
         const selectedMetric = metrics.find(m => m.id === selectedMetricId);
         if (selectedMetric) {
@@ -64,12 +126,70 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, metrics, sele
         }
       }
       
-      days.push({ date: dateStr, entry, percentage, epoch });
+      epochDays.push({ date: dateStr, entry, percentage, epoch });
     }
     
-    return { epoch, days };
-  });
+    allEpochsData.push({ epoch, days: epochDays });
+    currentDate = epochEndDate.add(1, 'day');
+  }
+  
+  // Add remaining gap after last epoch
+  if (currentDate.isBefore(yearEnd) || currentDate.isSame(yearEnd)) {
+    const gapDays = [];
+    for (let d = currentDate; d.isBefore(yearEnd) || d.isSame(yearEnd); d = d.add(1, 'day')) {
+      const dateStr = d.format('YYYY-MM-DD');
+      const entry = entries.find(e => e.date === dateStr) || null;
+      
+      let percentage = 100;
+      if (selectedMetricId) {
+        const selectedMetric = metrics.find(m => m.id === selectedMetricId);
+        if (selectedMetric) {
+          const metricEntry = selectedMetric.entries.find(e => e.date === dateStr);
+          if (metricEntry && selectedMetric.targetValue > 0) {
+            percentage = Math.min(100, (metricEntry.value / selectedMetric.targetValue) * 100);
+          } else {
+            percentage = 0;
+          }
+        }
+      }
+      
+      gapDays.push({ 
+        date: dateStr, 
+        entry, 
+        percentage, 
+        epoch: { 
+          id: `gap-${dateStr}`, 
+          name: 'No Epoch', 
+          description: 'Days not in any epoch',
+          startDate: dateStr,
+          endDate: dateStr,
+          color: '#e5e7eb',
+          createdAt: '',
+          updatedAt: ''
+        } 
+      });
+    }
+    
+    if (gapDays.length > 0) {
+      allEpochsData.push({
+        epoch: {
+          id: `gap-${gapDays[0].date}`,
+          name: 'No Epoch',
+          description: 'Days not assigned to any epoch',
+          startDate: gapDays[0].date,
+          endDate: gapDays[gapDays.length - 1].date,
+          color: '#e5e7eb',
+          createdAt: '',
+          updatedAt: ''
+        },
+        days: gapDays
+      });
+    }
+  }
 
+  // Find max days to use as base for grid columns
+  const maxDays = Math.max(...allEpochsData.map(e => e.days.length));
+  
   const today = dayjs().format('YYYY-MM-DD');
 
   return (
@@ -138,8 +258,9 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, metrics, sele
       </div>
 
       <div className="flex-1 overflow-auto flex flex-col gap-1">
-        {epochsData.map((epochData) => {
+        {allEpochsData.map((epochData) => {
           const isCurrentEpoch = today >= epochData.epoch.startDate && today <= epochData.epoch.endDate;
+          const isUnassigned = epochData.epoch.id === 'unassigned';
           return (
             <EpochRow
               key={epochData.epoch.id}
@@ -148,7 +269,8 @@ export const WritingGrid: React.FC<WritingGridProps> = ({ entries, metrics, sele
               selectedDate={selectedDate}
               selectedMetricId={selectedMetricId}
               onDateSelect={onDateSelect}
-              isCurrentEpoch={isCurrentEpoch}
+              isCurrentEpoch={isCurrentEpoch && !isUnassigned}
+              maxDays={maxDays}
             />
           );
         })}

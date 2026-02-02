@@ -11,7 +11,7 @@ interface DailyJournalProps {
 
 export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metrics }) => {
   const { state, setEntries, setMetrics } = useApp();
-  const { entries } = state;
+  const { entries, years, selectedYearId } = state;
   
   const [content, setContent] = useState('');
   const [showClearModal, setShowClearModal] = useState(false);
@@ -19,6 +19,32 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
   
   // State for metric sliders
   const [metricValues, setMetricValues] = useState<{[key: string]: number}>({});
+
+  // Find which epoch the selected date belongs to
+  const selectedYear = years.find(y => y.id === selectedYearId);
+  const currentEpoch = selectedYear?.epochs.find(epoch => 
+    selectedDate >= epoch.startDate && selectedDate <= epoch.endDate
+  );
+
+  // Filter metrics: show only metrics for current epoch or metrics without epochId (all year)
+  const filteredMetrics = metrics.filter(metric => {
+    if (!metric.epochId) return true; // Show metrics without epochId (all year)
+    if (!currentEpoch) return false; // If no epoch for this date, don't show epoch-specific metrics
+    return metric.epochId === currentEpoch.id; // Show only metrics for current epoch
+  });
+
+  // Sort metrics: epoch metrics first, then all-year metrics
+  const sortedMetrics = [...filteredMetrics].sort((a, b) => {
+    const aIsEpoch = a.epochId === currentEpoch?.id;
+    const bIsEpoch = b.epochId === currentEpoch?.id;
+    if (aIsEpoch && !bIsEpoch) return -1;
+    if (!aIsEpoch && bIsEpoch) return 1;
+    return 0;
+  });
+
+  // Split metrics into epoch and all-year groups
+  const epochMetrics = sortedMetrics.filter(m => m.epochId === currentEpoch?.id);
+  const allYearMetrics = sortedMetrics.filter(m => !m.epochId);
 
   // Load metric values for the selected date
   const loadMetricValues = useCallback(() => {
@@ -140,7 +166,7 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
   const selectedDateFormatted = dayjs(selectedDate).format('MMMM D, YYYY');
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 h-full grid grid-rows-[auto_1fr_auto_auto] gap-3 overflow-hidden">
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 h-full grid grid-rows-[auto_1fr_auto_auto] gap-3 overflow-hidden">
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <div className="flex items-center space-x-3">
           <div className="flex items-center justify-center w-10 h-10 bg-blue-100 rounded-full">
@@ -179,52 +205,106 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
         </div>
 
         {/* Metrics Section - 25% */}
-        <div className="w-1/4 min-w-0 flex flex-col">
+        <div className="w-1/4 min-w-0 flex flex-col bg-gray-50 rounded-lg p-3 border border-gray-200">
           <div className="flex items-center space-x-2 mb-2 flex-shrink-0">
-            <Target className="w-4 h-4 text-blue-600" />
-            <label className="text-sm font-medium text-gray-700">
-              Daily Metrics
+            <Target className="w-3 h-3 text-blue-600" />
+            <label className="text-xs font-semibold text-gray-700">
+              Metrics
             </label>
           </div>
           
-          {metrics.length === 0 ? (
+          {filteredMetrics.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-center text-gray-500 text-sm">
               <div>
                 <Target className="w-6 h-6 mx-auto mb-2 text-gray-400" />
-                <p>No metrics yet</p>
+                <p>No metrics for this {currentEpoch ? 'epoch' : 'date'}</p>
                 <p className="text-xs">Create metrics in the chart view</p>
               </div>
             </div>
           ) : (
-            <div className="flex-1 overflow-y-auto space-y-3">
-              {metrics.map(metric => {
-                const percentage = metricValues[metric.id] || 0;
-                const actualValue = Math.round((percentage / 100) * metric.targetValue);
-                
-                return (
-                  <div key={metric.id} className="space-y-1">
-                    <div className="flex justify-between items-center">
-                      <label className="text-xs font-medium text-gray-700 truncate">
-                        {metric.name}
-                      </label>
-                      <span className="text-xs text-gray-500 min-w-0 text-right">
-                        {actualValue}{metric.unit || ''} ({percentage}%)
-                      </span>
+            <div className="flex-1 overflow-y-auto pr-2 space-y-1.5 custom-scrollbar">
+              {/* Epoch Metrics */}
+              {epochMetrics.length > 0 && (
+                <>
+                  {currentEpoch && (
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                      {currentEpoch.name}
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={percentage}
-                      onChange={(e) => updateMetricValue(metric.id, parseInt(e.target.value))}
-                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                    />
-                    <div className="text-xs text-gray-400 text-right">
-                      Target: {metric.targetValue}{metric.unit || ''}
+                  )}
+                  {epochMetrics.map(metric => {
+                    const percentage = metricValues[metric.id] || 0;
+                    const actualValue = Math.round((percentage / 100) * metric.targetValue);
+                    
+                    return (
+                      <div key={metric.id} className="space-y-0">
+                        <div className="flex justify-between items-baseline gap-1">
+                          <label className="text-xs font-medium text-gray-700 truncate leading-tight">
+                            {metric.name}
+                          </label>
+                          <span className="text-[10px] text-gray-500 whitespace-nowrap leading-tight">
+                            {actualValue}{metric.unit || ''} / {metric.targetValue}{metric.unit || ''}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={percentage}
+                          onChange={(e) => updateMetricValue(metric.id, parseInt(e.target.value))}
+                          className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer slider mt-0.5"
+                        />
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              
+              {/* Divider between epoch and all-year metrics */}
+              {epochMetrics.length > 0 && allYearMetrics.length > 0 && (
+                <div className="flex items-center gap-2 my-2">
+                  <div className="flex-1 h-px bg-gray-300"></div>
+                  <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                    All Year
+                  </span>
+                  <div className="flex-1 h-px bg-gray-300"></div>
+                </div>
+              )}
+              
+              {/* All Year Metrics */}
+              {allYearMetrics.length > 0 && (
+                <>
+                  {epochMetrics.length === 0 && (
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                      All Year
                     </div>
-                  </div>
-                );
-              })}
+                  )}
+                  {allYearMetrics.map(metric => {
+                    const percentage = metricValues[metric.id] || 0;
+                    const actualValue = Math.round((percentage / 100) * metric.targetValue);
+                    
+                    return (
+                      <div key={metric.id} className="space-y-0">
+                        <div className="flex justify-between items-baseline gap-1">
+                          <label className="text-xs font-medium text-gray-700 truncate leading-tight">
+                            {metric.name}
+                          </label>
+                          <span className="text-[10px] text-gray-500 whitespace-nowrap leading-tight">
+                            {actualValue}{metric.unit || ''} / {metric.targetValue}{metric.unit || ''}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={percentage}
+                          onChange={(e) => updateMetricValue(metric.id, parseInt(e.target.value))}
+                          className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer slider mt-0.5"
+                        />
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -296,26 +376,43 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
       )}
 
       <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+          margin-right: 2px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 3px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
+        }
+        
         input[type="range"]::-webkit-slider-thumb {
           appearance: none;
-          height: 24px;
-          width: 24px;
+          height: 14px;
+          width: 14px;
           border-radius: 50%;
           background: #ffffff;
           border: 2px solid #3b82f6;
           cursor: pointer;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
         }
         
         input[type="range"]::-moz-range-thumb {
-          height: 24px;
-          width: 24px;
+          height: 14px;
+          width: 14px;
           border-radius: 50%;
           background: #ffffff;
           border: 2px solid #3b82f6;
           cursor: pointer;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-          border: none;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
         }
       `}</style>
     </div>

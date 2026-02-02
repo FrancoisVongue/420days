@@ -29,6 +29,8 @@ export interface Metric {
   entries: MetricEntry[];
   unit?: string;
   isDefault?: boolean;
+  epochId?: string; // Optional: if set, metric belongs to specific epoch
+  tags?: string[]; // Optional: tags for filtering and organization
 }
 
 export interface Epoch {

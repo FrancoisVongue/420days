@@ -16,28 +16,31 @@ interface StatsViewProps {
 
 export const StatsView: React.FC<StatsViewProps> = ({ entries, metrics, selectedDate, onDateSelect }) => {
   return (
-    <div className="h-full w-full grid grid-cols-2 gap-4 p-4 relative" style={{ gridTemplateRows: 'auto 1fr' }}>
+    <div className="h-full w-full flex flex-col p-4 gap-4 overflow-hidden">
       {/* Year/Epoch Controls - top row, full width */}
-      <div className="col-start-1 col-span-2 flex space-x-4">
+      <div className="flex space-x-4 flex-shrink-0">
         <YearSelector />
         <EpochManager />
       </div>
       
-      {/* Writing Grid - bottom left */}
-      <div className="col-start-1 row-start-2">
-        <WritingGrid entries={entries} metrics={metrics} selectedDate={selectedDate} onDateSelect={onDateSelect} />
-      </div>
-      
-      {/* Right column - Metrics and Journal */}
-      <div className="col-start-2 row-start-2 grid grid-rows-2 gap-4">
-        {/* Metrics Chart - top */}
-        <div className="row-start-1">
-          <MetricsChart selectedDate={selectedDate} metrics={metrics} />
+      {/* Main content area - takes remaining height */}
+      <div className="flex-1 grid grid-cols-2 gap-4 min-h-0">
+        {/* Writing Grid - left side, full height */}
+        <div className="min-h-0 overflow-hidden">
+          <WritingGrid entries={entries} metrics={metrics} selectedDate={selectedDate} onDateSelect={onDateSelect} />
         </div>
         
-        {/* Daily Journal - bottom */}
-        <div className="row-start-2">
-          <DailyJournal selectedDate={selectedDate} metrics={metrics} />
+        {/* Right column - Metrics and Journal */}
+        <div className="grid grid-rows-2 gap-4 min-h-0">
+          {/* Metrics Chart - top half */}
+          <div className="min-h-0 overflow-hidden">
+            <MetricsChart selectedDate={selectedDate} metrics={metrics} />
+          </div>
+          
+          {/* Daily Journal - bottom half */}
+          <div className="min-h-0 overflow-hidden">
+            <DailyJournal selectedDate={selectedDate} metrics={metrics} />
+          </div>
         </div>
       </div>
     </div>
