@@ -30,3 +30,24 @@ export interface Metric {
   unit?: string;
   isDefault?: boolean;
 }
+
+export interface Epoch {
+  id: string;
+  name: string;
+  description?: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  color: string; // hex color for visualization
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Year {
+  id: string;
+  name: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  epochs: Epoch[];
+  createdAt: string;
+  updatedAt: string;
+}
