@@ -46,7 +46,7 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
   const epochMetrics = sortedMetrics.filter(m => m.epochId === currentEpoch?.id);
   const allYearMetrics = sortedMetrics.filter(m => !m.epochId);
 
-  // Filter tasks: show tasks with dueDate >= selectedDate AND (not completed OR completed after selectedDate)
+  // Filter tasks: show tasks with dueDate >= selectedDate AND (not completed OR completed on/after selectedDate)
   // Also filter by epoch like metrics
   const visibleTasks = tasks.filter(task => {
     // Task should be visible if due date hasn't passed yet
@@ -60,8 +60,8 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
       return task.epochId === currentEpoch.id; // Show only tasks for current epoch
     }
     
-    // If completed, only show if completed date is after selected date (task was still pending on this date)
-    if (task.completedDate > selectedDate) {
+    // If completed, show if completed on or after selected date (task was still pending on this date OR completed today)
+    if (task.completedDate >= selectedDate) {
       // Filter by epoch
       if (!task.epochId) return true;
       if (!currentEpoch) return false;
@@ -181,14 +181,11 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
       const filteredEntries = entries.filter((entry: DailyEntry) => entry.date !== selectedDate);
       setEntries(filteredEntries);
       
-      // Clear metrics data for this day (stored in localStorage with different keys)
-      // Note: This assumes metrics are stored in localStorage. If they're stored differently,
-      // this would need to be updated to match the actual storage mechanism.
-      
-      // Dispatch custom event to clear metrics data
-      window.dispatchEvent(new CustomEvent('clearDayData', { 
-        detail: { date: selectedDate } 
-      }));
+      // Clear metrics data for this day
+      setMetrics(metrics.map(metric => ({
+        ...metric,
+        entries: metric.entries.filter(entry => entry.date !== selectedDate)
+      })));
       
       // Reset form state
       setContent('');
@@ -368,8 +365,8 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto pr-2 space-y-1.5 custom-scrollbar">
-              {visibleTasks.map(task => {
-                const isCompleted = task.completedDate === selectedDate;
+              {/* Active tasks (not completed) */}
+              {visibleTasks.filter(task => task.completedDate !== selectedDate).map(task => {
                 const isOverdue = dayjs(task.dueDate).isBefore(dayjs(selectedDate), 'day');
                 
                 return (
@@ -377,14 +374,12 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
                     <div className="flex items-start gap-2">
                       <input
                         type="checkbox"
-                        checked={isCompleted}
+                        checked={false}
                         onChange={() => toggleTaskCompletion(task.id)}
                         className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
                       />
                       <div className="flex-1 min-w-0">
-                        <label className={`text-xs font-medium leading-tight cursor-pointer ${
-                          isCompleted ? 'line-through text-gray-400' : 'text-gray-700'
-                        }`}>
+                        <label className="text-xs font-medium leading-tight cursor-pointer text-gray-700">
                           {task.name}
                         </label>
                         <div className="flex items-center gap-1 mt-0.5">
@@ -393,9 +388,35 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
                           }`}>
                             {dayjs(task.dueDate).format('MMM D')}
                           </span>
-                          {isOverdue && !isCompleted && (
+                          {isOverdue && (
                             <span className="text-[10px] text-red-600 font-semibold">⚠️</span>
                           )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {/* Completed tasks (at the bottom) */}
+              {visibleTasks.filter(task => task.completedDate === selectedDate).map(task => {
+                return (
+                  <div key={task.id} className="space-y-0 opacity-50">
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={true}
+                        onChange={() => toggleTaskCompletion(task.id)}
+                        className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <label className="text-xs font-medium leading-tight cursor-pointer line-through text-gray-400">
+                          {task.name}
+                        </label>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-[10px] leading-tight line-through text-gray-400">
+                            {dayjs(task.dueDate).format('MMM D')}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -427,14 +448,14 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
                 <Trash2 className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Clear All Data</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Clear Day Data</h3>
                 <p className="text-sm text-gray-600">This action cannot be undone</p>
               </div>
             </div>
             
             <div className="mb-6">
               <p className="text-gray-700 mb-3">
-                Are you sure you want to clear all data for{' '}
+                Delete all data for{' '}
                 <span className="font-semibold">
                   {dayjs(selectedDate).format('MMMM D, YYYY')}
                 </span>
@@ -445,7 +466,7 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
                   ⚠️ This will permanently delete:
                 </p>
                 <ul className="text-red-700 text-sm space-y-1 ml-4">
-                  <li>• Journal entry and thoughts</li>
+                  <li>• Journal entry for this day</li>
                   <li>• All metric values for this day</li>
                 </ul>
               </div>
@@ -465,7 +486,7 @@ export const DailyJournal: React.FC<DailyJournalProps> = ({ selectedDate, metric
                 className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center space-x-2"
               >
                 <Trash2 className="w-4 h-4" />
-                <span>{isClearing ? 'Clearing...' : 'Clear All Data'}</span>
+                <span>{isClearing ? 'Clearing...' : 'Delete'}</span>
               </button>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import dayjs from 'dayjs';
-import { Plus, X, Target, BarChart3, Settings, CheckSquare } from 'lucide-react';
+import { Plus, X, Target, TrendingUp, BarChart3, Settings, CheckSquare } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Scatter, ComposedChart } from 'recharts';
 import { Metric, Task } from '../types';
 import { useApp } from '../context/AppContext';
@@ -20,11 +20,6 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
   const { years, selectedYearId, tasks } = state;
   const selectedYear = years.find(y => y.id === selectedYearId);
   
-  // Find current epoch based on selectedDate
-  const currentEpoch = selectedYear?.epochs.find(
-    epoch => selectedDate >= epoch.startDate && selectedDate <= epoch.endDate
-  );
-  
   const [activeTab, setActiveTab] = useState<'chart' | 'metrics' | 'tasks'>('chart');
   const [showAddForm, setShowAddForm] = useState(false);
   const [metricToDelete, setMetricToDelete] = useState<string | null>(null);
@@ -43,17 +38,6 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
     epochId: '',
     tags: ''
   });
-  
-  // Update newTask defaults when selectedDate or currentEpoch changes
-  React.useEffect(() => {
-    if (showAddForm && activeTab === 'tasks') {
-      setNewTask(prev => ({
-        ...prev,
-        dueDate: selectedDate,
-        epochId: currentEpoch?.id || ''
-      }));
-    }
-  }, [showAddForm, activeTab, selectedDate, currentEpoch]);
   
   // Filter states
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -115,7 +99,10 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
   };
 
   const removeMetric = (id: string) => {
-    setMetricToDelete(id);
+    const metric = metrics.find(m => m.id === id);
+    if (metric) {
+      setMetricToDelete(id);
+    }
   };
 
   const confirmDeleteMetric = () => {
@@ -173,11 +160,19 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
   const chartData = useMemo(() => {
     if (filteredMetrics.length === 0) return [];
 
-    // Get all unique dates from ALL filtered metrics
+    // Get all unique dates from filtered metrics
     const allDates = new Set<string>();
     filteredMetrics.forEach(metric => {
       metric.entries.forEach(entry => {
-        allDates.add(entry.date);
+        // Apply epoch filter
+        if (selectedEpochFilter) {
+          const selectedEpoch = selectedYear?.epochs.find(e => e.id === selectedEpochFilter);
+          if (selectedEpoch && entry.date >= selectedEpoch.startDate && entry.date <= selectedEpoch.endDate) {
+            allDates.add(entry.date);
+          }
+        } else {
+          allDates.add(entry.date);
+        }
       });
     });
 
@@ -185,7 +180,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
     const sortedDates = Array.from(allDates).sort();
 
     // Build data array with all metrics for each date
-    const data = sortedDates.map(date => {
+    return sortedDates.map(date => {
       const dataPoint: any = {
         date,
         dateFormatted: dayjs(date).format('MMM D'),
@@ -197,25 +192,11 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
         if (entry) {
           const percentage = (entry.value / metric.targetValue) * 100;
           dataPoint[metric.id] = percentage;
-          dataPoint[`${metric.id}_name`] = metric.name;
-          dataPoint[`${metric.id}_value`] = entry.value;
-          dataPoint[`${metric.id}_target`] = metric.targetValue;
-          dataPoint[`${metric.id}_unit`] = metric.unit || '';
         }
       });
 
       return dataPoint;
     });
-
-    // Apply epoch filter to the final data
-    if (selectedEpochFilter) {
-      const selectedEpoch = selectedYear?.epochs.find(e => e.id === selectedEpochFilter);
-      if (selectedEpoch) {
-        return data.filter(d => d.date >= selectedEpoch.startDate && d.date <= selectedEpoch.endDate);
-      }
-    }
-
-    return data;
   }, [filteredMetrics, selectedEpochFilter, selectedYear]);
 
   // Prepare task points for chart
@@ -241,17 +222,23 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
         value: 100, // Tasks always at 100%
         name: task.name,
         isCompleted: !!task.completedDate,
+        fill: task.completedDate ? '#10B981' : '#F59E0B',
       }));
   }, [tasks, selectedTags, selectedEpochFilter]);
+
+  // Function to clear metrics data for a specific date
+  const clearMetricsForDate = (date: string) => {
+    setMetrics(metrics.map(metric => ({
+      ...metric,
+      entries: metric.entries.filter(entry => entry.date !== date)
+    })));
+  };
 
   // Listen for clear data events from other components
   useEffect(() => {
     const handleClearData = (event: CustomEvent) => {
       if (event.detail.date === selectedDate) {
-        setMetrics(metrics.map(metric => ({
-          ...metric,
-          entries: metric.entries.filter(entry => entry.date !== selectedDate)
-        })));
+        clearMetricsForDate(selectedDate);
       }
     };
 
@@ -259,35 +246,362 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
     return () => {
       window.removeEventListener('clearDayData', handleClearData as EventListener);
     };
-  }, [selectedDate, metrics, setMetrics]);
+  }, [selectedDate]);
 
-  // Custom tooltip for Recharts
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className="bg-gray-900 text-white p-3 rounded-lg shadow-lg text-sm">
-          <p className="font-bold mb-2">{dayjs(data.date).format('MMM D, YYYY')}</p>
-          {payload.map((entry: any, index: number) => {
-            if (entry.dataKey === 'value') return null; // Skip task points in tooltip
-            const metric = filteredMetrics.find(m => m.id === entry.dataKey);
-            if (!metric) return null;
-            
-            const value = data[`${metric.id}_value`];
-            const target = data[`${metric.id}_target`];
-            const unit = data[`${metric.id}_unit`];
-            
-            return (
-              <div key={index} className="mt-1">
-                <span style={{ color: entry.color }}>●</span> {metric.name}: {value}{unit} / {target}{unit} ({entry.value.toFixed(1)}%)
+  return (
+    if (!svgRef.current || filteredMetrics.length === 0) return;
+
+    const renderChart = () => {
+      const svg = d3.select(svgRef.current);
+      svg.selectAll('*').remove();
+
+      const margin = { top: 20, right: 120, bottom: 40, left: 60 };
+      
+      // Get container dimensions dynamically
+      const container = svgRef.current;
+      if (!container) return;
+      
+      const containerWidth = container.clientWidth;
+      const containerHeight = container.clientHeight || 500;
+      
+      const width = Math.max(containerWidth - margin.left - margin.right, 300);
+      const height = Math.max(containerHeight - margin.top - margin.bottom, 300);
+
+      // Set SVG dimensions
+      svg
+        .attr('width', containerWidth)
+        .attr('height', containerHeight);
+
+      const g = svg.append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Get date range from filtered metrics
+    const allDates = new Set<string>();
+    const allPercentages: number[] = [];
+    filteredMetrics.forEach(metric => {
+      metric.entries.forEach(entry => {
+        // If epoch filter is active, only include dates within that epoch
+        if (selectedEpochFilter) {
+          const selectedEpoch = selectedYear?.epochs.find(e => e.id === selectedEpochFilter);
+          if (selectedEpoch && entry.date >= selectedEpoch.startDate && entry.date <= selectedEpoch.endDate) {
+            allDates.add(entry.date);
+          }
+        } else {
+          allDates.add(entry.date);
+        }
+      });
+      metric.entries.forEach(entry => {
+        const percentage = (entry.value / metric.targetValue) * 100;
+        allPercentages.push(percentage);
+      });
+    });
+
+    if (allDates.size === 0) return;
+
+    const dateArray = Array.from(allDates).sort();
+    const startDate = dayjs(dateArray[0]);
+    const endDate = dayjs(dateArray[dateArray.length - 1]);
+
+    // Always start from 0% and ensure 100% target is visible
+    const yMin = 0;
+    const maxPercentage = allPercentages.length > 0 ? Math.max(...allPercentages) : 100;
+    // Ensure we always show at least up to 100% (target line), but go higher if needed
+    const yMax = Math.max(100, maxPercentage * 1.1); // Add 10% padding above max value
+
+    // Scales
+    const xScale = d3.scaleTime()
+      .domain([startDate.toDate(), endDate.toDate()])
+      .range([0, width]);
+
+    const yScale = d3.scaleLinear()
+      .domain([yMin, yMax])
+      .range([height, 0]);
+
+    // Axes
+    g.append('g')
+      .attr('transform', `translate(0,${height})`)
+      .call(d3.axisBottom(xScale).tickFormat((date: Date | d3.NumberValue) => d3.timeFormat('%b %d')(date as Date)));
+
+    g.append('g')
+      .call(d3.axisLeft(yScale).tickFormat(d => `${d}%`));
+
+    // Target line at 100% (always visible since we always include 100% in range)
+    g.append('line')
+      .attr('x1', 0)
+      .attr('x2', width)
+      .attr('y1', yScale(100))
+      .attr('y2', yScale(100))
+      .attr('stroke', '#10B981')
+      .attr('stroke-width', 2)
+      .attr('stroke-dasharray', '5,5')
+      .attr('opacity', 0.8);
+
+    g.append('text')
+      .attr('x', width - 5)
+      .attr('y', yScale(100) - 5)
+      .attr('text-anchor', 'end')
+      .attr('fill', '#10B981')
+      .attr('font-size', '12px')
+      .attr('font-weight', 'bold')
+      .text('Target');
+
+    // Line generator
+    const line = d3.line<{ date: Date; percentage: number }>()
+      .x(d => xScale(d.date))
+      .y(d => yScale(d.percentage))
+      .curve(d3.curveMonotoneX);
+
+    // Draw lines for each filtered metric
+    filteredMetrics.forEach(metric => {
+      if (metric.entries.length === 0) return;
+
+      // Filter entries by epoch if selected
+      let entries = metric.entries;
+      if (selectedEpochFilter) {
+        const selectedEpoch = selectedYear?.epochs.find(e => e.id === selectedEpochFilter);
+        if (selectedEpoch) {
+          entries = entries.filter(e => e.date >= selectedEpoch.startDate && e.date <= selectedEpoch.endDate);
+        }
+      }
+
+      const lineData = entries
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .map(entry => ({
+        date: dayjs(entry.date).toDate(),
+        percentage: (entry.value / metric.targetValue) * 100
+      }));
+
+      if (lineData.length === 0) return;
+
+      // Line path
+      g.append('path')
+        .datum(lineData)
+        .attr('fill', 'none')
+        .attr('stroke', metric.color)
+        .attr('stroke-width', 2)
+        .attr('d', line);
+
+      // Data points
+      g.selectAll(`.dot-${metric.id}`)
+        .data(lineData)
+        .enter().append('circle')
+        .attr('class', `dot-${metric.id}`)
+        .attr('cx', d => xScale(d.date))
+        .attr('cy', d => yScale(d.percentage))
+        .attr('r', 4)
+        .attr('fill', metric.color)
+        .attr('stroke', 'white')
+        .attr('stroke-width', 2);
+    });
+
+    // Draw tasks as points at 100% on their due date
+    const filteredTasks = tasks.filter(task => {
+      // Filter by tags (OR logic)
+      if (selectedTags.length > 0) {
+        const hasSelectedTag = task.tags?.some(tag => selectedTags.includes(tag));
+        if (!hasSelectedTag) return false;
+      }
+      
+      // Filter by epoch
+      if (selectedEpochFilter) {
+        if (task.epochId && task.epochId !== selectedEpochFilter) return false;
+      }
+      
+      return true;
+    });
+
+    filteredTasks.forEach(task => {
+      const taskDate = dayjs(task.dueDate).toDate();
+      
+      // Only draw if task date is within the visible date range
+      if (taskDate >= startDate.toDate() && taskDate <= endDate.toDate()) {
+        const isCompleted = !!task.completedDate;
+        
+        // Draw task as a point at 100%
+        g.append('circle')
+          .attr('cx', xScale(taskDate))
+          .attr('cy', yScale(100))
+          .attr('r', 6)
+          .attr('fill', isCompleted ? '#10B981' : '#F59E0B')
+          .attr('stroke', 'white')
+          .attr('stroke-width', 2)
+          .attr('opacity', 0.9)
+          .style('cursor', 'pointer')
+          .append('title')
+          .text(`${task.name}\nDue: ${dayjs(task.dueDate).format('MMM D, YYYY')}${isCompleted ? '\n✓ Completed' : ''}`);
+      }
+    });
+
+    // Create tooltip
+    const tooltip = d3.select('body')
+      .append('div')
+      .attr('class', 'metrics-chart-tooltip')
+      .style('position', 'absolute')
+      .style('visibility', 'hidden')
+      .style('background', 'rgba(0, 0, 0, 0.9)')
+      .style('color', 'white')
+      .style('padding', '12px')
+      .style('border-radius', '8px')
+      .style('font-size', '13px')
+      .style('pointer-events', 'none')
+      .style('z-index', '1000')
+      .style('box-shadow', '0 4px 12px rgba(0, 0, 0, 0.3)')
+      .style('max-width', '300px');
+
+    // Create invisible overlay for mouse tracking
+    const overlay = g.append('rect')
+      .attr('width', width)
+      .attr('height', height)
+      .attr('fill', 'none')
+      .attr('pointer-events', 'all')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .on('mousemove', function(event: any) {
+        // Overlay is used for mouse tracking - reference to satisfy linter
+        void overlay;
+        const [mouseX] = d3.pointer(event);
+        const hoveredDate = xScale.invert(mouseX);
+        
+        // Find the closest date with data
+        let closestDate: Date | null = null;
+        let minDistance = Infinity;
+        
+        filteredMetrics.forEach(metric => {
+          metric.entries.forEach(entry => {
+            const entryDate = dayjs(entry.date).toDate();
+            const distance = Math.abs(entryDate.getTime() - hoveredDate.getTime());
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestDate = entryDate;
+            }
+          });
+        });
+        
+        if (!closestDate || minDistance > 7 * 24 * 60 * 60 * 1000) { // 7 days threshold
+          tooltip.style('visibility', 'hidden');
+          return;
+        }
+        
+        const closestDateStr = dayjs(closestDate).format('YYYY-MM-DD');
+        
+        // Collect all metrics data for this date
+        const tooltipData: Array<{
+          name: string;
+          value: number;
+          target: number;
+          percentage: number;
+          color: string;
+          unit: string;
+        }> = [];
+        
+        filteredMetrics.forEach(metric => {
+          const entry = metric.entries.find(e => e.date === closestDateStr);
+          if (entry) {
+            tooltipData.push({
+              name: metric.name,
+              value: entry.value,
+              target: metric.targetValue,
+              percentage: (entry.value / metric.targetValue) * 100,
+              color: metric.color,
+              unit: metric.unit || ''
+            });
+          }
+        });
+        
+        if (tooltipData.length === 0) {
+          tooltip.style('visibility', 'hidden');
+          return;
+        }
+        
+        // Build tooltip content
+        const tooltipContent = `
+          <div style="font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 4px;">
+            ${dayjs(closestDate).format('MMM D, YYYY')}
+          </div>
+          ${tooltipData.map(data => `
+            <div style="margin-bottom: 6px; display: flex; align-items: center;">
+              <div style="width: 12px; height: 12px; background-color: ${data.color}; border-radius: 50%; margin-right: 8px; flex-shrink: 0;"></div>
+              <div style="flex: 1;">
+                <div style="font-weight: 500;">${data.name}</div>
+                <div style="font-size: 12px; color: #ccc; margin-top: 1px;">
+                  ${data.value}${data.unit} / ${data.target}${data.unit} (${data.percentage.toFixed(1)}%)
+                </div>
               </div>
-            );
-          })}
-        </div>
-      );
-    }
-    return null;
-  };
+            </div>
+          `).join('')}
+        `;
+        
+        tooltip
+          .style('visibility', 'visible')
+          .html(tooltipContent);
+        
+        // Position tooltip
+        const [pageX, pageY] = d3.pointer(event, document.body);
+        tooltip
+          .style('top', (pageY - 10) + 'px')
+          .style('left', (pageX + 15) + 'px');
+      })
+      .on('mouseout', function() {
+        tooltip.style('visibility', 'hidden');
+      });
+
+    // Legend
+    const legend = g.append('g')
+      .attr('transform', `translate(${width + 10}, 20)`);
+
+    filteredMetrics.forEach((metric, i) => {
+      const legendItem = legend.append('g')
+        .attr('transform', `translate(0, ${i * 30})`);
+
+      legendItem.append('line')
+        .attr('x1', 0)
+        .attr('x2', 15)
+        .attr('y1', 0)
+        .attr('y2', 0)
+        .attr('stroke', metric.color)
+        .attr('stroke-width', 2);
+
+      // Add text with wrapping for long names
+      const legendText = legendItem.append('text')
+        .attr('x', 20)
+        .attr('y', 0)
+        .attr('dy', '0.35em')
+        .attr('font-size', '12px')
+        .style('max-width', '100px') // Limit width to force wrapping
+        .text(metric.name);
+
+      // Simple text wrapping for long metric names
+      const text = legendText.node();
+      if (text) {
+        const textContent = text.textContent || '';
+        
+        // Simple truncation with ellipsis for very long names
+        if (textContent.length > 15) {
+          legendText.text(textContent.substring(0, 12) + '...');
+        }
+        
+        // Add title attribute for hover tooltip
+        legendText.attr('title', metric.name);
+      }
+    });
+    };
+
+    // Initial render
+    renderChart();
+
+    // Add resize listener
+    const handleResize = () => {
+      renderChart();
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    // Cleanup function
+    return () => {
+      d3.select('body').selectAll('.metrics-chart-tooltip').remove();
+      window.removeEventListener('resize', handleResize);
+    };
+
+  }, [filteredMetrics, selectedDate, activeTab, selectedEpochFilter, selectedYear, tasks]);
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 h-full flex flex-col overflow-hidden">
@@ -333,10 +647,10 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 flex flex-col" style={{ minHeight: 0 }}>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {activeTab === 'chart' ? (
           /* Chart View */
-          <div className="flex-1 flex flex-col gap-3" style={{ minHeight: '500px' }}>
+          <div className="flex-1 flex flex-col min-h-0 gap-3">
             {/* Filters for Chart */}
             {metrics.length > 0 && (
               <div className="flex flex-col gap-2 flex-shrink-0">
@@ -386,64 +700,26 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
                 )}
               </div>
             )}
-
-            {/* Chart */}
-            <div className="w-full" style={{ height: '500px' }}>
-              {filteredMetrics.length > 0 && chartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={500}>
-                  <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      dataKey="dateFormatted" 
-                      tick={{ fontSize: 12 }}
-                    />
-                    <YAxis 
-                      label={{ value: 'Progress (%)', angle: -90, position: 'insideLeft', style: { fontSize: 12 } }}
-                      tick={{ fontSize: 12 }}
-                      domain={[0, 110]}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend 
-                      wrapperStyle={{ fontSize: '12px' }}
-                      formatter={(value) => {
-                        const metric = filteredMetrics.find(m => m.id === value);
-                        return metric ? metric.name : value;
-                      }}
-                    />
-                    <ReferenceLine y={100} stroke="#10B981" strokeDasharray="5 5" strokeWidth={2} label={{ value: 'Target', position: 'right', fill: '#10B981', fontSize: 12 }} />
-                    
-                    {/* Lines for each metric */}
-                    {filteredMetrics.map(metric => (
-                      <Line
-                        key={metric.id}
-                        type="monotone"
-                        dataKey={String(metric.id)}
-                        name={metric.name}
-                        stroke={metric.color}
-                        strokeWidth={3}
-                        dot={{ r: 6, fill: metric.color, strokeWidth: 2, stroke: '#fff' }}
-                        activeDot={{ r: 8 }}
-                        connectNulls={true}
-                        isAnimationActive={false}
-                      />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-full text-gray-500">
-                  <div className="text-center">
-                    <BarChart3 className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                    <p className="mb-4">No metrics added yet.</p>
-                    <button
-                      onClick={() => setActiveTab('metrics')}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      Add Your First Metric
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            
+            {/* Chart Area */}
+            <div className="flex-1 min-h-0">
+            {metrics.length > 0 ? (
+              <div className="w-full h-full flex items-center justify-center">
+                <svg ref={svgRef} width="100%" height="100%" className="border border-gray-200 rounded" />
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-500">
+                <TrendingUp className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                <p className="mb-4">No metrics added yet.</p>
+                <button
+                  onClick={() => setActiveTab('metrics')}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Add Your First Metric
+                </button>
+              </div>
+            )}
+          </div>
           </div>
         ) : activeTab === 'metrics' ? (
           /* Metrics Management View */
@@ -550,45 +826,57 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
               </div>
             )}
 
-            {/* Metrics List */}
+            {/* Metrics List - Table View */}
             <div className="flex-1 overflow-y-auto">
               {metrics.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-100 sticky top-0">
                       <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Default</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Name</th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Target</th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Epoch</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Tags</th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Data Points</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Epoch</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Target</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Current</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Progress</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {metrics.map(metric => {
-                        const metricEpoch = metric.epochId ? selectedYear?.epochs.find(e => e.id === metric.epochId) : null;
+                        const selectedEntry = metric.entries.find(e => e.date === selectedDate);
+                        const currentValue = selectedEntry?.value || 0;
+                        const percentage = metric.targetValue > 0 ? (currentValue / metric.targetValue) * 100 : 0;
+                        const epochName = metric.epochId 
+                          ? selectedYear?.epochs.find(e => e.id === metric.epochId)?.name || 'Unknown'
+                          : 'All year';
                         
                         return (
                           <tr key={metric.id} className="border-b border-gray-200 hover:bg-gray-50">
                             <td className="px-3 py-2">
-                              <div className="flex items-center gap-2">
-                                <div 
-                                  className="w-3 h-3 rounded-full" 
+                              <input
+                                type="checkbox"
+                                checked={metric.isDefault || false}
+                                onChange={(e) => {
+                                  const updatedMetrics = metrics.map(m => ({
+                                    ...m,
+                                    isDefault: m.id === metric.id ? e.target.checked : false
+                                  }));
+                                  setMetrics(updatedMetrics);
+                                }}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                title="Set as default metric"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex items-center space-x-2">
+                                <div
+                                  className="w-3 h-3 rounded-full flex-shrink-0"
                                   style={{ backgroundColor: metric.color }}
                                 />
                                 <span className="font-medium text-gray-900">{metric.name}</span>
                               </div>
-                            </td>
-                            <td className="px-3 py-2 text-gray-600">
-                              {metric.targetValue}{metric.unit || ''}
-                            </td>
-                            <td className="px-3 py-2">
-                              {metricEpoch ? (
-                                <span className="text-xs text-gray-700">{metricEpoch.name}</span>
-                              ) : (
-                                <span className="text-xs text-gray-400">All year</span>
-                              )}
                             </td>
                             <td className="px-3 py-2">
                               {metric.tags && metric.tags.length > 0 ? (
@@ -606,13 +894,18 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
                                 <span className="text-gray-400 text-xs">-</span>
                               )}
                             </td>
-                            <td className="px-3 py-2 text-gray-600">
-                              {metric.entries.length}
+                            <td className="px-3 py-2 text-gray-600">{epochName}</td>
+                            <td className="px-3 py-2 text-gray-900">{metric.targetValue}{metric.unit}</td>
+                            <td className="px-3 py-2 text-gray-900">{currentValue}{metric.unit}</td>
+                            <td className="px-3 py-2">
+                              <span className={`font-semibold ${percentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
+                                {percentage.toFixed(1)}%
+                              </span>
                             </td>
                             <td className="px-3 py-2">
                               <button
                                 onClick={() => removeMetric(metric.id)}
-                                className="text-red-600 hover:text-red-700 transition-colors"
+                                className="text-gray-400 hover:text-red-500 transition-colors"
                                 title="Delete metric"
                               >
                                 <X className="w-4 h-4" />
@@ -623,6 +916,9 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ selectedDate, metric
                       })}
                     </tbody>
                   </table>
+                  <p className="text-xs text-gray-500 mt-3 px-3">
+                    💡 Enter daily values using the sliders in the Daily Journal section
+                  </p>
                 </div>
               ) : (
                 <div className="text-center py-12 text-gray-500">

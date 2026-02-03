@@ -32,8 +32,12 @@ export const EpochRow: React.FC<EpochRowProps> = ({
     x: 0,
     y: 0
   });
+  const [showDescriptionTooltip, setShowDescriptionTooltip] = useState(false);
 
   const todayDateString = dayjs().format('YYYY-MM-DD');
+  
+  // Calculate epoch duration in days
+  const epochDays = dayjs(epoch.endDate).diff(dayjs(epoch.startDate), 'day') + 1;
 
   const getColor = (percentage: number) => {
     if (percentage === 0) return '#ebedf0';
@@ -77,8 +81,34 @@ export const EpochRow: React.FC<EpochRowProps> = ({
   return (
     <div className="epoch-row flex flex-col min-h-0">
       {isCurrentEpoch && (
-        <div className="text-sm font-bold text-gray-800 mb-1 flex-shrink-0">
-          📍 {epoch.name} ({epoch.startDate} → {epoch.endDate})
+        <div className="text-sm font-bold text-gray-800 mb-1 flex-shrink-0 flex items-center gap-2">
+          <span>📍 {epoch.name} ({dayjs(epoch.startDate).format('MMMM D, YYYY')} → {dayjs(epoch.endDate).format('MMMM D, YYYY')}, {epochDays} days)</span>
+          {epoch.description && (
+            <div className="relative inline-block">
+              <div
+                className="cursor-help w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center"
+                onMouseEnter={() => setShowDescriptionTooltip(true)}
+                onMouseLeave={() => setShowDescriptionTooltip(false)}
+              >
+                <svg
+                  className="w-3 h-3 text-white"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+              {showDescriptionTooltip && (
+                <div className="absolute left-0 top-6 z-50 bg-gray-900 text-white text-sm rounded-lg px-4 py-3 shadow-lg min-w-[250px] max-w-[400px]">
+                  <p className="leading-relaxed">{epoch.description}</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       <div className="grid gap-1" style={{
